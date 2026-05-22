@@ -3,301 +3,236 @@
 
 ---
 
-## Hackathon requirements (Build With AI — Live Agents)
+## Hackathon Requirements
 
-Your project must satisfy **mandatory** rules for judging:
-
-| Requirement | How we meet it |
-|-------------|----------------|
-| **Category: Live Agents** (audio + vision) | Camera records the set; Gemini **sees** video; Coach **speaks** (audio) + **text overlay**; athlete can **talk back** after the opening |
-| **Google GenAI SDK** | Person 1 uses `@google/genai` in `server/index.js` (not raw REST only) |
-| **Hosted on Google Cloud** | Person 1 deploys backend to **Cloud Run** — demo video must show the `*.run.app` URL |
-| **Grounding / robustness** (30% technical) | `tools: [{ google_search: {} }]` + post-set prompt (“only what you see”) |
-| **Submission** | Repo README lists **all team members**; submit GitHub URL on the portal |
-
-**Pitch framing:** We optimized for reliable **post-set video review + live voice conversation** because mid-rep Live latency was unreliable in the room — still a vision + voice agent, not a text-only chatbot.
-
-Portal: [goo.gle/CHM-hack-26](https://goo.gle/CHM-hack-26) · Account setup: [goo.gle/hackathon-account](https://goo.gle/hackathon-account)
+| Requirement | How you meet it |
+|-------------|-----------------|
+| **Live Agents (audio + vision)** | Gemini sees the squat video, Coach speaks feedback, athlete talks back |
+| **Google GenAI SDK** | Person 1 uses `@google/genai` — confirm model name matches what you test |
+| **Grounding / robustness** | `tools: [{ google_search: {} }]` backs up why questions |
+| **Not prohibited** | Vision + voice coaching — not a text chatbot, not a PDF RAG app |
 
 ---
 
-## Team pivot (read first)
+## What You Are Building
 
-**We are NOT doing real-time mid-rep coaching.** Live video streaming was too slow
-and unreliable in AI Studio.
+The full flow you own:
 
-**New flow:**
-1. Athlete **records one set** of air squats in the app
-2. Athlete taps **Stop**
-3. Coach **speaks first** — either corrective feedback or positive affirmation
-4. Athlete can **reply** and continue the conversation (e.g. "Why do my knees cave?")
+1. Athlete records a set → taps Stop
+2. Video sent to Gemini Live
+3. **Coach speaks first** — 2–3 sentence opening: either names 1–2 faults with cues, or gives genuine praise
+4. Athlete can talk back out loud — ask why, ask about a specific rep, ask what to fix next
+5. Coach responds conversationally, backed by Google Search grounding on why questions
 
-You own the **system prompt**, coaching quality, English-only responses, and testing.
-Person 1 wires Gemini on the server; Person 3 builds record/stop UI.
+No bad rep video clips. No timestamp extraction. Just: video in → Coach speaks → conversation.
 
----
-
-## Your Role
-You are responsible for:
-- Refining the post-set review system prompt in `server/prompts/squat.js`
-- Testing coaching quality (openings + follow-up questions)
-- Verifying Google Search Grounding on "why" questions after the opening
-- Supporting Person 1 on Gemini video + session logic if they get stuck
-
-You are the AI expert on the team. If Coach's opening is vague, wrong language,
-or generic, fix the prompt until it sounds like a real coach.
+Your job is making sure Coach sounds like a real coach, not a chatbot.
 
 ---
 
-## Phase 1 — Test the prompt (Hour 1)
-### Do this while Person 1 sets up the server. No repo code required yet.
+## Phase 1 — Test in AI Studio (Hour 1)
+### Do this while Person 1 sets up the server.
 
-### Step 1 — Open Google AI Studio
-1. Go to https://aistudio.google.com (hackathon account in Hackathon Chrome profile)
-2. Use **Chat** with a model that accepts **video upload** (e.g. Gemini 2.0 Flash),
-   OR use **Stream Realtime** and say **"Set done"** after you finish a set on camera
-   (upload is closer to the real app)
+### Step 1 — Open AI Studio
+1. Go to https://aistudio.google.com (hackathon account, Hackathon Chrome profile)
+2. Go to **Stream Realtime** in the left sidebar
+3. Select model: `gemini-2.0-flash-live-001`
 
-### Step 2 — Paste the system prompt
-1. Open **System instructions**
-2. Paste the full prompt from **Canonical prompt** below (same as Eli's `squat.js`)
+### Step 2 — Paste the System Prompt
+Open System Instructions and paste the canonical prompt below.
 
-### Step 3 — Test with video
-1. On your phone, record **10–15 seconds**: 5 air squats with **obvious knee cave** on reps 3–4
-2. Upload the clip to AI Studio (or finish a set on camera + say "Set done" in Live)
-3. Coach should **open the conversation** without you asking first
-4. Check: **English only**, **2–3 sentences**, names **1–2 real faults** or gives **praise**
+### Step 3 — Test with a Bad Form Video
+1. Record 10–15 seconds on your phone: 5 squats with obvious knee cave on reps 3–4
+2. Upload the clip or show it to the camera in Stream Realtime
+3. Say "SET_COMPLETE" when done
+4. Coach should open without you asking first
 
-### Step 4 — Test good form
-1. Record a set with **good depth** and control
-2. Opening should be **affirmation**, not nitpicking
+**What a good opening sounds like:**
+> "On that set your knees caved on reps 3 and 4. Drive them out over your toes. Want to work on stance or depth next?"
 
-### What a good opening sounds like
+**What a bad opening sounds like:**
+> "I can see several areas for improvement in your squat mechanics..." ← too long, generic
 
-**Feedback:**
-> "On that set your knees caved on the middle reps. Push your knees out over your toes. Want to work on depth or stance next?"
-
-**Praise:**
+### Step 4 — Test with Good Form
+Record a clean set. Opening should be genuine praise:
 > "Strong set — good depth and control. Your chest stayed tall. Keep that tempo."
 
-**Bad:**
-> "I can see several areas for improvement in your squat mechanics..."
-> (too long, generic, or non-English)
+Coach should NOT invent faults on a good set.
 
-### Step 5 — Document what works
-Save the exact opening phrasing for the demo. Send the final prompt to Person 1.
+### Step 5 — Test Follow-Up Questions
+After the opening, ask out loud:
+- "Why do my knees cave?"
+- "What drill fixes that?"
+- "Was rep 3 the worst one?"
 
----
+Coach should answer briefly and specifically. Not re-lecture the whole set.
 
-## Phase 2 — Refine the knowledge base (Hour 2)
-
-The prompt lives in Person 1's `server/prompts/squat.js`. Expand based on testing.
-
-### Common issues to fix
-
-**Issue: Coach waits for the user to speak first**
-Fix — already in prompt; reinforce:
-```
-When the set ends, YOU speak first. The athlete does not prompt you.
-```
-
-**Issue: Coach responds in another language**
-Fix:
-```
-LANGUAGE (CRITICAL): You MUST speak and write only in English.
-```
-
-**Issue: Opening is too long or lists every rep**
-Fix:
-```
-Opening is maximum 2–3 sentences. Maximum 2 faults. Do not narrate every rep.
-```
-
-**Issue: Coach is too harsh on a good set**
-Fix:
-```
-If form was good overall, opening must be genuine praise — do not invent faults.
-```
-
-**Issue: Coach is too generic**
-Fix:
-```
-Only describe what you saw in the recording. Name rep timing if helpful ("reps 3–4").
-```
-
-**Issue: Follow-up "why" answers are shallow**
-Fix: Verify `tools: [{ google_search: {} }]` on the server (Person 1). Tune prompt:
-```
-For why questions, answer briefly with real coaching concepts (muscles, mobility, cues).
-```
-
-### Extended squat knowledge to add if missing
-
-```
-Feet too narrow or too wide → "Widen your stance slightly" / "Toes out a little more"
-Arms not used for balance → "Arms out in front for balance"
-Rushing the descent → "Control the descent — slow down"
-Not locking out at the top → "Stand all the way up — full lockout"
-```
+### Step 6 — Confirm the Model Name
+Whatever model works reliably in AI Studio — send that exact model string to Person 1.
+They will use it as `LIVE_MODEL` in `server/index.js`.
 
 ---
 
-## Phase 3 — Google Search Grounding (Hour 3–4)
+## Phase 2 — Canonical Prompt
 
-### What it does
-Backs up follow-up answers when the athlete asks **why** (after the opening).
+This is the single source of truth. Send the final version to Person 1 for `squat.js`.
 
-### How to enable
-Already in Person 1's server:
+```
+LANGUAGE (CRITICAL):
+You MUST speak and write only in English. Never use any other language.
+
+You are Coach, an expert calisthenics coach. The athlete has just finished
+recording a set of air squats. You receive their video of the full set.
+
+MODE — POST-SET REVIEW:
+- Watch the entire set before responding.
+- When you receive SET_COMPLETE, YOU speak first immediately.
+- Open with ONE short message (2–3 sentences max) that either:
+  (A) Names the 1–2 most important faults you saw, one cue each,
+      AND the rep number where it happened, OR
+  (B) Gives genuine positive affirmation if form was solid throughout.
+- Pick A or B from what you actually saw. Do not be generic.
+- After your opening, answer follow-up questions briefly.
+  Stay conversational but expert.
+
+OPENING EXAMPLES (adapt to what you saw):
+- Fault: "Rep 3 and 4 your knees caved — drive them out over your toes.
+  Want to work on stance or depth next?"
+- Praise: "Strong set — good depth and control. Your chest stayed tall.
+  Keep that tempo."
+
+RULES:
+- Maximum 2 faults in the opening.
+- Priority order: knee cave → depth → chest forward → heels rising.
+- Cues must be 8 words or fewer.
+- Always name the rep number for every fault you call out.
+- Do not list every rep. Do not lecture. Do not be generic.
+- Only describe what you can actually see in the video.
+- If form was mixed, lead with the biggest issue, then one positive if earned.
+- Do not repeat the same cue twice in follow-up.
+
+FAULTS TO LOOK FOR:
+Knee cave, chest falling forward, heels rising, shallow depth (hip crease
+not below knee), butt wink, stance too narrow or wide, rushing descent,
+no lockout at top, arms not used for balance.
+
+FOLLOW-UP BEHAVIOR:
+- Answer "why" questions briefly with real coaching concepts.
+- If asked about a specific rep, describe exactly what you saw.
+- If asked "which rep was bad" or "show me", say the rep number and
+  what happened: "Rep 3 — knees caved at the bottom."
+- Stay conversational. Do not re-lecture the full set unprompted.
+- One thought at a time.
+
+You are reviewing a completed set. Open the conversation immediately
+when you receive SET_COMPLETE. English only.
+```
+
+---
+
+## Phase 3 — Refine If Needed (Hour 2)
+
+Test results will tell you what to fix. Common issues:
+
+| Issue | Fix |
+|-------|-----|
+| Coach waits for user to speak first | Add to prompt: "When you receive SET_COMPLETE, speak immediately. Do not wait." |
+| Opening is in another language | Strengthen LANGUAGE block; restart session |
+| Opening too long or lists every rep | Add: "Maximum 2–3 sentences. Never list every rep." |
+| Generic opening not based on video | Add: "Only describe what is visible. Name the rep number." |
+| Inventing faults on a good set | Add: "If form was good overall, opening must be genuine praise. Do not invent faults." |
+| Follow-up answers too shallow | Verify `google_search` tool is on; add: "Use real coaching concepts for why questions." |
+| Repeating the same cue | Add: "Do not repeat the same cue twice in a row." |
+
+---
+
+## Phase 4 — Google Search Grounding (Hour 3)
+
+Already enabled in Person 1's server code:
 ```javascript
 tools: [{ google_search: {} }]
 ```
 
-### How to verify
-After Coach gives the opening, ask (voice or text):
+### Verify it's working
+After Coach gives the opening, ask:
 > "Why do my knees cave during squats?"
 
-Working: valgus collapse, weak hip abductors, ankle mobility, etc.
-Not working: generic filler — Person 1 checks `tools` in session config.
+**Working:** Answer mentions valgus collapse, hip abductor weakness, or ankle mobility.
+**Not working:** Vague generic answer. Tell Person 1 to check `tools` in the session config.
+
+Grounding is most useful for why questions during conversation — not for the opening itself.
 
 ---
 
-## Phase 4 — Coaching quality testing (Hour 4)
+## Phase 5 — Coaching Quality Testing (Hour 4)
 
-### Testing protocol
+Run these four tests before the demo. All on Person 1's Cloud Run URL.
 
-**Test A — Bad set (knee cave)**
-- Record ~5 reps, knees cave on middle reps
-- Stop → Coach opens with knee cave + short cue
-- Opening in **English**, within a reasonable wait (processing state in app)
+**Test A — Bad form set**
+Do 5 squats with obvious knee cave on reps 3–4.
+Expected: Coach opens with knee cave, names rep number, gives one cue.
 
-**Test B — Good set**
-- Record controlled reps, solid depth
-- Stop → Coach opens with **praise**, not fake corrections
+**Test B — Good form set**
+Do 5 controlled squats with good depth.
+Expected: Coach gives genuine praise. Does NOT invent faults.
 
-**Test C — Follow-up**
-- Ask "Why do my knees cave?"
-- Answer should be specific (grounding if enabled)
+**Test C — Follow-up conversation**
+After Test A opening, ask: "Why do my knees cave?"
+Expected: Brief specific answer with a real coaching concept.
 
-**Test D — English only**
-- If account locale is mixed, confirm opening stays English
+**Test D — Rep-specific question**
+Ask: "Was rep 3 the worst?"
+Expected: Coach describes what it saw on rep 3 specifically.
 
-### If a test fails
-
-| Failure | Fix |
-|--------|-----|
-| No opening / user must speak first | Strengthen SESSION BEHAVIOR in prompt; Person 1 sends `SET_COMPLETE` trigger after video |
-| Wrong fault | Add clearer fault description in knowledge base |
-| Too long | Tighten "2–3 sentences max" |
-| Wrong language | Strengthen LANGUAGE block |
-| Slow processing | Normal for video upload; show "Analyzing..." in UI (Person 3) |
-
-### Share results with the team before the demo
+If any test fails, fix the prompt and retest. Share results with the team
+before the demo so everyone knows exactly what to expect.
 
 ---
 
-## Phase 5 — Demo preparation (Hour 5)
+## Phase 6 — Demo Preparation (Hour 5)
 
-### Demo flow (rehearse 5×)
+### The demo sequence (rehearse 5 times)
+1. Tap Record — do 5 squats with knee cave on reps 3–4
+2. Tap Stop — UI shows "Analyzing..."
+3. Coach speaks: "Rep 3 and 4 your knees caved — drive them out over your toes."
+4. Ask out loud: "Why do my knees cave?"
+5. Coach gives a brief specific answer
 
-1. Athlete taps **Record** and does **5 squats** with **knee cave** on reps 3–4
-2. Athlete taps **Stop** → UI shows **Analyzing...**
-3. Coach **speaks first**: knee cave + one cue
-4. Athlete asks: **"Why do my knees cave?"**
-5. Coach gives a short, credible answer
-
-**Backup demo:** Good-form set → Coach praises the set.
+Backup demo: clean set → Coach gives praise.
 
 ### Talking points for judges
-
-- **Category:** Live Agents — multimodal coach that **sees** your set and **speaks** to you
-- **Problem / solution:** Real-time form coaching without a human trainer
-- **Tech:** Google **GenAI SDK**, Gemini **Live** (audio) + **video** input on **Google Cloud Run**
-- **UX:** Not a text box — record a set → Coach **opens with voice** + on-screen text → athlete asks follow-ups out loud
-- **Grounding:** Google Search backs up “why” questions (reduces hallucinations)
-- **Cloud proof:** Show `https://your-service-….run.app` in the demo (health check + working app)
-- **Honest design note:** Post-set analysis for accuracy; conversation after is live and interruptible
-
----
-
-## Canonical prompt (copy to AI Studio and Person 1's squat.js)
-
-```
-LANGUAGE (CRITICAL):
-- You MUST speak and write only in English. Never use any other language.
-
-You are Coach, an expert calisthenics coach. The athlete records ONE set of air squats,
-then stops recording. You receive their recorded video of that set.
-
-MODE — POST-SET REVIEW (not live mid-rep):
-- Do NOT coach rep-by-rep during the recording. Analyze the full set when it ends.
-- When the recording ends (or you receive SET_COMPLETE), YOU speak first.
-- Open with ONE short message (2–3 sentences max) that either:
-  (A) names the 1–2 most important faults you saw and one cue each, OR
-  (B) gives genuine positive affirmation if form was good overall.
-- Pick A or B from what you actually saw — do not be generic.
-- After your opening, answer follow-up questions briefly. Stay conversational but expert.
-
-OPENING EXAMPLES (adapt to what you saw):
-- Feedback: "On that set your knees caved on reps 3 and 5. Push your knees out over your toes. Want to fix stance or depth next?"
-- Praise: "Strong set — good depth and control. Your chest stayed tall. Keep that tempo."
-
-RULES:
-- Maximum 2 faults in the opening. Prioritize knee cave, then depth, then chest forward.
-- Cues must be short (8 words or fewer when possible). Name body parts and actions.
-- If form was mixed, lead with the biggest issue; add one positive only if earned.
-- Do not list every rep. Do not lecture. Only describe what is visible in the video.
-- Do not repeat the same cue twice in a row in follow-up.
-
-WHAT TO LOOK FOR IN THE SET:
-Knee cave, chest forward, heels rising, shallow depth, butt wink,
-stance too narrow/wide, rushing descent, no lockout at top, arms not helping balance.
-
-For "why" questions, answer briefly with real coaching concepts.
-You are reviewing a completed set. Open the conversation in English.
-```
+- **Category:** Live Agents — multimodal coach that sees your set and speaks to you
+- **Vision + voice:** Gemini watches the video and responds with audio
+- **Conversational:** Athlete can interrupt and ask follow-ups out loud after the opening
+- **Grounding:** Google Search backs up why questions — reduces hallucinations
+- **Cloud:** Running on Google Cloud Run (show the `*.run.app` URL)
+- **Not a chatbot:** No text box — record a set, hear a coach, talk back
 
 ---
 
 ## Troubleshooting
 
-**Coach never speaks after Stop:**
-- Person 3 sent `recording_complete`? Person 1 logs show video received?
-- Person 1 sent `SET_COMPLETE` text trigger after video?
-
-**Opening in wrong language:**
-- Strengthen LANGUAGE block; new Gemini session after prompt change
-
-**Opening is generic:**
-- Add rep-specific examples to prompt; use a clearer bad-form demo video
-
-**Only text, no voice:**
-- Person 1: `response_modalities` includes AUDIO; Person 3 plays `coach_audio`
-
-**Follow-up why questions weak:**
-- Check `google_search` tool; ask Person 1 to verify tools in config
-
----
-
-## Submission support (Person 2)
-
-Help the team with **demo video** and **README** (required on portal):
-
-- [ ] Demo script rehearsed on **Cloud Run** URL (not only localhost)
-- [ ] Video shows **working software** (record → stop → Coach speaks → follow-up question)
-- [ ] Video or slides mention **GenAI SDK** + **Gemini** + **Cloud Run** (architecture screenshot)
-- [ ] Confirm repo **README.md** lists every team member name
+| Problem | Fix |
+|---------|-----|
+| No opening after SET_COMPLETE | Strengthen trigger instruction; check Person 1 is sending SET_COMPLETE text after video |
+| Opening in wrong language | Add more explicit LANGUAGE block; restart session |
+| Opening is generic | Use a more extreme bad-form demo video; add rep-specific examples to prompt |
+| No voice, only text | Person 1: check `response_modalities` includes AUDIO |
+| Follow-up why answers weak | Verify `google_search` tool in Person 1's config |
 
 ---
 
 ## Your Checklist
 
-- [ ] Post-set prompt pasted and tested (bad set opening)
-- [ ] Good-set opening tested (praise)
-- [ ] Openings are English, 2–3 sentences, specific
-- [ ] Knowledge base covers major squat faults
-- [ ] Final prompt + **model name** sent to Person 1 for `squat.js` and `LIVE_MODEL`
-- [ ] Google Search Grounding verified on a why question
-- [ ] Bad-set demo flow rehearsed with Person 3 on **Cloud Run** backend
-- [ ] Good-set backup demo rehearsed
-- [ ] Judge talking points prepared (Live Agents + Cloud + SDK + grounding)
+- [ ] AI Studio Stream Realtime tested and working
+- [ ] Bad form set tested — Coach opens with specific fault + rep number
+- [ ] Good form set tested — Coach gives genuine praise
+- [ ] Follow-up "why" question tested — specific answer
+- [ ] Rep-specific question tested — Coach describes what it saw
+- [ ] Opening is English only, 2–3 sentences, specific
+- [ ] Final prompt sent to Person 1 for `squat.js`
+- [ ] Model name confirmed and sent to Person 1 for `LIVE_MODEL`
+- [ ] Google Search Grounding verified
+- [ ] All 4 tests passing on Cloud Run URL
+- [ ] Demo sequence rehearsed 5 times
+- [ ] Judge talking points prepared
