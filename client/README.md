@@ -1,6 +1,6 @@
-# Coach Frontend
+# StackDaddy Frontend
 
-React/Vite frontend for the Bodyweight AI Coach demo.
+React/Vite frontend for the StackDaddy real-time form coaching demo.
 
 ## Run locally
 

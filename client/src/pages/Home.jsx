@@ -19,11 +19,11 @@ export default function Home({ onStart }) {
   return (
     <section className="home">
       <div className="home-heading">
-        <p className="home-kicker">Bodyweight AI Coach</p>
-        <h1>Coach</h1>
+        <p className="home-kicker">AI Form Coach</p>
+        <h1>StackDaddy</h1>
         <p>
-          Camera-on, audio-on feedback for quick hackathon demos and real-time
-          movement cues.
+          Real-time bodyweight coaching that watches your form, listens for
+          context, and gives clear cues while you train.
         </p>
       </div>
 
