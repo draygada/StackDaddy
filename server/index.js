@@ -12,8 +12,8 @@ const host = process.env.HOST || '127.0.0.1'
 const apiKey = process.env.GEMINI_API_KEY
 const liveModel = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview'
 
-if (!apiKey) {
-  console.error('Missing GEMINI_API_KEY. Add it to server/.env before starting.')
+if (!apiKey || apiKey === 'PASTE_THE_KEY_HERE' || apiKey === 'your_key_here') {
+  console.error('Missing GEMINI_API_KEY. Add the real key to server/.env before starting.')
   process.exit(1)
 }
 
