@@ -11,6 +11,7 @@ const port = process.env.PORT || 8080
 const host = process.env.HOST || '127.0.0.1'
 const apiKey = process.env.GEMINI_API_KEY
 const liveModel = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview'
+const textModel = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash'
 const responseModality =
   process.env.GEMINI_RESPONSE_MODALITY === 'AUDIO' ? Modality.AUDIO : Modality.TEXT
 
@@ -25,6 +26,31 @@ app.use(express.json({ limit: '10mb' }))
 
 app.get('/', (req, res) => {
   res.send('StackDaddy server running')
+})
+
+app.get('/grounding-check', async (req, res) => {
+  try {
+    const response = await genai.models.generateContent({
+      model: textModel,
+      contents:
+        'In one short paragraph, why do knees cave inward during squats?',
+      config: {
+        tools: [{ googleSearch: {} }],
+        temperature: 0.2,
+        maxOutputTokens: 120
+      }
+    })
+
+    res.json({
+      ok: true,
+      text: response.text || ''
+    })
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error?.message || 'Grounding check failed'
+    })
+  }
 })
 
 const httpServer = app.listen(port, host, () => {
@@ -51,6 +77,42 @@ function sendJson(socket, payload) {
 function getExercisePrompt(exercise) {
   if (exercise === 'squat') return buildSquatPrompt()
   return buildSquatPrompt()
+}
+
+function cleanCue(text) {
+  return text
+    .replace(/^["'\s]+|["'\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function generateFrameCue({ frame, exercise, lastCue }) {
+  const response = await genai.models.generateContent({
+    model: textModel,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              data: frame,
+              mimeType: 'image/jpeg'
+            }
+          },
+          {
+            text: `Analyze this latest ${exercise} frame. Return exactly one short coaching cue for the athlete right now. Maximum 8 words. If form looks good, return one short positive cue. Do not explain. Do not mention that this is an image. Do not repeat this previous cue: ${lastCue || 'none'}.`
+          }
+        ]
+      }
+    ],
+    config: {
+      systemInstruction: getExercisePrompt(exercise),
+      temperature: 0.2,
+      maxOutputTokens: 24
+    }
+  })
+
+  return cleanCue(response.text || '')
 }
 
 async function openGeminiSession(browserSocket, exercise) {
@@ -123,6 +185,9 @@ wss.on('connection', async (browserSocket, request) => {
   let coachingInterval = null
   let videoFrames = 0
   let audioChunks = 0
+  let latestFrame = null
+  let lastCue = ''
+  let fallbackBusy = false
 
   console.log(`Browser connected for ${exercise}`)
 
@@ -131,7 +196,7 @@ wss.on('connection', async (browserSocket, request) => {
     console.log(`Gemini Live session opened successfully (${responseModality})`)
     sendJson(browserSocket, { type: 'session_ready' })
 
-    coachingInterval = setInterval(() => {
+    coachingInterval = setInterval(async () => {
       if (videoFrames === 0) {
         console.log('Waiting for video frames from browser...')
         return
@@ -146,6 +211,32 @@ wss.on('connection', async (browserSocket, request) => {
           'Analyze the latest camera view. Give exactly one short squat coaching cue now. Maximum 8 words.',
         turnComplete: true
       })
+
+      if (!latestFrame || fallbackBusy) return
+
+      fallbackBusy = true
+      try {
+        const cue = await generateFrameCue({
+          frame: latestFrame,
+          exercise,
+          lastCue
+        })
+
+        if (cue) {
+          lastCue = cue
+          console.log(`Fallback cue: ${cue}`)
+          sendJson(browserSocket, {
+            type: 'coach_text',
+            text: cue
+          })
+        } else {
+          console.log('Fallback cue was empty')
+        }
+      } catch (error) {
+        console.error('Fallback cue error:', error?.message || error)
+      } finally {
+        fallbackBusy = false
+      }
     }, 5000)
   } catch (error) {
     console.error('Failed to open Gemini session:', error)
@@ -163,6 +254,7 @@ wss.on('connection', async (browserSocket, request) => {
 
       if (message.type === 'video_frame') {
         videoFrames += 1
+        latestFrame = message.data
         geminiSession.sendRealtimeInput({
           video: {
             data: message.data,
