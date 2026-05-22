@@ -1,0 +1,118 @@
+.home {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  gap: 42px;
+  padding: 40px 22px;
+  background:
+    radial-gradient(circle at 50% 20%, oklch(0.25 0.05 178 / 0.45), transparent 34rem),
+    linear-gradient(160deg, oklch(0.15 0.015 230), oklch(0.08 0.012 230));
+}
+
+.home-heading {
+  max-width: 620px;
+  text-align: center;
+}
+
+.home-kicker {
+  margin: 0 0 12px;
+  color: oklch(0.72 0.14 174);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.home-heading h1 {
+  margin: 0;
+  color: oklch(0.98 0.006 230);
+  font-size: clamp(56px, 10vw, 112px);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 0.9;
+}
+
+.home-heading p:last-child {
+  max-width: 54ch;
+  margin: 18px auto 0;
+  color: oklch(0.74 0.02 230);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.exercise-grid {
+  width: min(100%, 560px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.exercise-card {
+  min-height: 172px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  border: 1px solid oklch(0.35 0.025 230);
+  border-radius: 8px;
+  padding: 18px;
+  color: oklch(0.97 0.006 230);
+  background: oklch(0.18 0.014 230);
+  cursor: pointer;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.exercise-card:hover:not(:disabled),
+.exercise-card:focus-visible:not(:disabled) {
+  transform: translateY(-3px);
+  border-color: oklch(0.72 0.14 174);
+  background: oklch(0.22 0.018 230);
+  outline: none;
+}
+
+.exercise-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.exercise-mark {
+  margin-bottom: auto;
+  color: oklch(0.72 0.14 174);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.exercise-name {
+  font-size: 22px;
+  font-weight: 780;
+  line-height: 1.1;
+}
+
+.exercise-desc {
+  color: oklch(0.72 0.02 230);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+@media (max-width: 560px) {
+  .home {
+    place-items: stretch;
+    align-content: center;
+  }
+
+  .home-heading {
+    text-align: left;
+  }
+
+  .home-heading p:last-child {
+    margin-left: 0;
+  }
+
+  .exercise-grid {
+    grid-template-columns: 1fr;
+  }
+}

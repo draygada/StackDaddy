@@ -1,0 +1,35 @@
+.cue-overlay {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: clamp(64px, 10vh, 112px);
+  width: min(calc(100vw - 32px), 680px);
+  padding: 16px 24px;
+  border: 1px solid oklch(0.88 0.012 230 / 0.2);
+  border-radius: 8px;
+  background: oklch(0.1 0.012 230 / 0.82);
+  opacity: 0;
+  text-align: center;
+  transform: translateX(-50%) translateY(8px);
+  transition:
+    opacity 240ms ease,
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cue-overlay.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.cue-overlay.hidden {
+  opacity: 0;
+}
+
+.cue-text {
+  margin: 0;
+  color: oklch(0.98 0.006 230);
+  font-size: clamp(20px, 4.5vw, 34px);
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
