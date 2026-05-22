@@ -11,6 +11,8 @@ const port = process.env.PORT || 8080
 const host = process.env.HOST || '127.0.0.1'
 const apiKey = process.env.GEMINI_API_KEY
 const liveModel = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview'
+const responseModality =
+  process.env.GEMINI_RESPONSE_MODALITY === 'AUDIO' ? Modality.AUDIO : Modality.TEXT
 
 if (!apiKey || apiKey === 'PASTE_THE_KEY_HERE' || apiKey === 'your_key_here') {
   console.error('Missing GEMINI_API_KEY. Add the real key to server/.env before starting.')
@@ -56,16 +58,17 @@ async function openGeminiSession(browserSocket, exercise) {
     model: liveModel,
     config: {
       systemInstruction: getExercisePrompt(exercise),
-      responseModalities: [Modality.AUDIO],
-      outputAudioTranscription: {},
+      responseModalities: [responseModality],
       tools: [{ googleSearch: {} }]
     },
     callbacks: {
       onmessage: (message) => {
         const outputText = message.serverContent?.outputTranscription?.text
         const parts = message.serverContent?.modelTurn?.parts || []
+        const textParts = []
 
         if (outputText?.trim()) {
+          console.log(`Gemini cue: ${outputText.trim()}`)
           sendJson(browserSocket, {
             type: 'coach_text',
             text: outputText.trim()
@@ -82,11 +85,21 @@ async function openGeminiSession(browserSocket, exercise) {
           }
 
           if (part.text) {
-            sendJson(browserSocket, {
-              type: 'coach_text',
-              text: part.text
-            })
+            textParts.push(part.text)
           }
+        }
+
+        if (textParts.length > 0) {
+          const text = textParts.join(' ').trim()
+          console.log(`Gemini cue: ${text}`)
+          sendJson(browserSocket, {
+            type: 'coach_text',
+            text
+          })
+        }
+
+        if (message.serverContent?.turnComplete) {
+          console.log('Gemini turn complete')
         }
       },
       onerror: (error) => {
@@ -115,7 +128,7 @@ wss.on('connection', async (browserSocket, request) => {
 
   try {
     geminiSession = await openGeminiSession(browserSocket, exercise)
-    console.log('Gemini Live session opened successfully')
+    console.log(`Gemini Live session opened successfully (${responseModality})`)
     sendJson(browserSocket, { type: 'session_ready' })
 
     coachingInterval = setInterval(() => {
@@ -130,7 +143,7 @@ wss.on('connection', async (browserSocket, request) => {
 
       geminiSession.sendClientContent({
         turns:
-          'Analyze the latest camera view. If you see a squat form issue, give one short coaching cue. If form looks good, give one short positive cue.',
+          'Analyze the latest camera view. Give exactly one short squat coaching cue now. Maximum 8 words.',
         turnComplete: true
       })
     }, 5000)
