@@ -3,54 +3,53 @@
 
 ---
 
-## Hackathon requirements (Build With AI)
+## Hackathon Requirements
 
-| Requirement | How we meet it |
-|-------------|----------------|
-| **Live Agents** (audio + vision) | Camera preview + recorded set video; Coach **audio** + **text overlay**; mic follow-up |
-| **Google Cloud hosting** | Frontend talks to Person 1's backend on **Cloud Run** (`wss://….run.app`) for judging |
+| Requirement | How you meet it |
+|-------------|-----------------|
+| **Live Agents (audio + vision)** | Camera records the set; Coach audio plays back; mic follow-up |
+| **Google Cloud hosting** | Point `VITE_WS_URL` at Person 1's Cloud Run `wss://` URL for judging |
 | **Working demo video** | Show real app: Record → Stop → Analyzing → Coach speaks → ask a question |
-| **Not prohibited** | We are not a basic PDF chatbot or generic education chatbot — vision + voice coaching |
+| **Not prohibited** | Vision + voice coaching — not a text chatbot |
 
-**Dev:** `ws://localhost:8080` or Person 1's **ngrok** URL while building.  
-**Judging / submission:** Person 1's **Cloud Run** `wss://` URL (mandatory).
-
----
-
-## Team pivot (read first)
-
-**We are NOT streaming live video frames during the set.**
-
-**New flow:**
-1. User sees camera preview and taps **Record**
-2. User does one set of squats, taps **Stop**
-3. UI shows **Analyzing...** while the video uploads
-4. Coach **speaks first** (feedback or praise) — play audio + show text
-5. User can **talk back** for follow-up (mic → `audio_chunk`)
-
-You own record/stop UI, WebSocket messages, audio playback, and cue overlay.
+**Dev:** `ws://localhost:8080` or Person 1's ngrok URL.
+**Judging:** Person 1's Cloud Run `wss://` URL — mandatory.
 
 ---
 
-## Your Role
-You are responsible for:
-- Building the React frontend
-- Capturing webcam video with **MediaRecorder** (record one set, then stop)
-- Connecting to Person 1's WebSocket server
-- Sending `recording_complete` when the user stops
-- Playing Coach's opening audio and showing text overlay
-- Sending microphone audio for follow-up conversation after the opening
-- Making the UI look clean enough to demo
+## What You Are Building
 
-You can start building the UI immediately while Person 1 sets up
-the server. Connect to the real server once Person 1 gives you
-the WebSocket URL.
+**The full UI flow:**
+
+1. Home screen — select Air Squats
+2. Session screen — camera preview shows immediately
+3. User clicks **Record Set** → MediaRecorder starts
+4. User clicks **Stop** → video blob sent to server as `recording_complete`
+5. UI shows **"Coach is reviewing your set..."**
+6. Coach audio plays back through speakers + text overlay appears
+7. UI shows **"Ask Coach anything out loud"** — mic is live for follow-up
+8. User talks back — Coach responds conversationally
+9. User clicks End Session to go back to home
+
+No bad rep clips. No video replay. No timestamps. Just: record → hear Coach → talk back.
+
+---
+
+## WebSocket Message Contract
+
+| Direction | `type` | When |
+|-----------|--------|------|
+| Server → client | `session_ready` | Gemini connected; show Record button |
+| Client → server | `recording_complete` | User tapped Stop; `{ data, mimeType }` base64 webm |
+| Server → client | `review_started` | Server got video; show Analyzing state |
+| Server → client | `coach_audio` | Coach speaking — play through speakers |
+| Server → client | `coach_text` | Show as text overlay |
+| Client → server | `audio_chunk` | After opening, user follow-up mic |
+| Server → client | `error` | Something failed |
 
 ---
 
 ## Phase 1 — Project Setup (Hour 1)
-
-### Step 1 — Create the React App
 
 ```bash
 npm create vite@latest client -- --template react
@@ -58,25 +57,29 @@ cd client
 npm install
 ```
 
-Use the browser **WebSocket API** (no socket.io needed).
+No extra packages needed — use native browser WebSocket API.
 
-### Step 2 — Folder Structure
-
+**Folder structure:**
 ```
 client/src/
   pages/
-    Home.jsx
-    Session.jsx
+    Home.jsx + Home.css
+    Session.jsx + Session.css
   hooks/
     useCoachSession.js
   components/
-    CueOverlay.jsx
+    CueOverlay.jsx + CueOverlay.css
   App.jsx
-  App.css
-  index.css
 ```
 
-### Step 3 — App.jsx (routing)
+**Create `.env`:**
+```
+VITE_WS_URL=ws://localhost:8080
+```
+
+---
+
+## Phase 2 — App.jsx
 
 ```jsx
 import { useState } from 'react'
@@ -85,22 +88,15 @@ import Session from './pages/Session'
 
 export default function App() {
   const [page, setPage] = useState('home')
-  const [exercise, setExercise] = useState(null)
-
-  const startSession = (ex) => {
-    setExercise(ex)
-    setPage('session')
-  }
-
-  const endSession = () => {
-    setExercise(null)
-    setPage('home')
-  }
 
   return (
     <div>
-      {page === 'home' && <Home onStart={startSession} />}
-      {page === 'session' && <Session exercise={exercise} onEnd={endSession} />}
+      {page === 'home' && (
+        <Home onStart={() => setPage('session')} />
+      )}
+      {page === 'session' && (
+        <Session onEnd={() => setPage('home')} />
+      )}
     </div>
   )
 }
@@ -108,12 +104,9 @@ export default function App() {
 
 ---
 
-## Phase 2 — Home Page (Hour 1)
+## Phase 3 — Home Page
 
-Simple and fast. Two buttons. Get out of the way.
-
-### File: `client/src/pages/Home.jsx`
-
+### `client/src/pages/Home.jsx`
 ```jsx
 import './Home.css'
 
@@ -124,21 +117,13 @@ export default function Home({ onStart }) {
         <h1>Coach</h1>
         <p>Record a set. Get feedback.</p>
       </div>
-
       <div className="exercise-grid">
-        <button
-          className="exercise-card"
-          onClick={() => onStart('squat')}
-        >
+        <button className="exercise-card" onClick={onStart}>
           <span className="exercise-icon">🏋️</span>
           <span className="exercise-name">Air Squats</span>
-          <span className="exercise-desc">Record a set, then hear Coach</span>
+          <span className="exercise-desc">Record a set, hear Coach</span>
         </button>
-
-        <button
-          className="exercise-card disabled"
-          disabled
-        >
+        <button className="exercise-card disabled" disabled>
           <span className="exercise-icon">🤸</span>
           <span className="exercise-name">Handstands</span>
           <span className="exercise-desc">Coming soon</span>
@@ -149,8 +134,7 @@ export default function Home({ onStart }) {
 }
 ```
 
-### File: `client/src/pages/Home.css`
-
+### `client/src/pages/Home.css`
 ```css
 .home {
   min-height: 100vh;
@@ -162,28 +146,24 @@ export default function Home({ onStart }) {
   gap: 48px;
   padding: 40px;
 }
-
 .logo h1 {
   font-size: 48px;
   font-weight: 800;
-  color: #ffffff;
+  color: #fff;
   text-align: center;
   letter-spacing: -2px;
   margin: 0;
 }
-
 .logo p {
   font-size: 16px;
   color: #666;
   text-align: center;
   margin: 8px 0 0;
 }
-
 .exercise-grid {
   display: flex;
   gap: 24px;
 }
-
 .exercise-card {
   background: #1a1a1a;
   border: 1px solid #333;
@@ -196,61 +176,37 @@ export default function Home({ onStart }) {
   cursor: pointer;
   transition: all 0.2s;
   width: 200px;
+  color: white;
 }
-
 .exercise-card:hover:not(.disabled) {
   background: #222;
   border-color: #3b82f6;
   transform: translateY(-2px);
 }
-
 .exercise-card.disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
-
-.exercise-icon {
-  font-size: 40px;
-}
-
-.exercise-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: #ffffff;
-}
-
-.exercise-desc {
-  font-size: 13px;
-  color: #666;
-}
+.exercise-icon { font-size: 40px; }
+.exercise-name { font-size: 18px; font-weight: 600; }
+.exercise-desc { font-size: 13px; color: #666; }
 ```
 
 ---
 
-## Phase 3 — The Coach Session Hook (Hours 2-3)
-### Record a set → send video → hear Coach open → then allow follow-up mic.
+## Phase 4 — Coach Session Hook (Hours 2–3)
 
-### WebSocket message contract
+This hook handles everything: WebSocket, camera, MediaRecorder, audio playback, mic.
 
-| Direction | type | When |
-|-----------|------|------|
-| Server → client | `session_ready` | Gemini connected; show Record button |
-| Client → server | `recording_complete` | User tapped Stop; `{ data, mimeType }` base64 webm |
-| Server → client | `review_started` | Server got video (optional; show Analyzing) |
-| Server → client | `coach_audio` | Coach speaking |
-| Server → client | `coach_text` | Overlay text |
-| Client → server | `audio_chunk` | After opening, user follow-up mic |
-| Server → client | `error` | Something failed |
-
-### File: `client/src/hooks/useCoachSession.js`
+### `client/src/hooks/useCoachSession.js`
 
 ```javascript
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
 
-// connecting | ready | recording | analyzing | conversing | error
-export function useCoachSession(exercise) {
+// Status flow: connecting → ready → recording → analyzing → conversing → error
+export function useCoachSession() {
   const [status, setStatus] = useState('connecting')
   const [currentCue, setCurrentCue] = useState('')
   const [cueVisible, setCueVisible] = useState(false)
@@ -262,18 +218,24 @@ export function useCoachSession(exercise) {
   const chunksRef = useRef([])
   const audioContextRef = useRef(null)
   const processorRef = useRef(null)
-  const followUpMicStartedRef = useRef(false)
+  const followUpStartedRef = useRef(false)
 
+  // Show text overlay for 8 seconds then fade
   const showCue = useCallback((text) => {
     setCurrentCue(text)
     setCueVisible(true)
     setTimeout(() => setCueVisible(false), 8000)
   }, [])
 
+  // Play Coach audio through speakers
   const playAudio = useCallback(async (base64Audio) => {
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext()
+      }
+      // Resume if browser suspended it
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume()
       }
       const audioData = atob(base64Audio)
       const arrayBuffer = new ArrayBuffer(audioData.length)
@@ -292,9 +254,10 @@ export function useCoachSession(exercise) {
     }
   }, [])
 
+  // Start sending mic audio for follow-up conversation
   const startFollowUpMic = useCallback(async (stream) => {
-    if (followUpMicStartedRef.current) return
-    followUpMicStartedRef.current = true
+    if (followUpStartedRef.current) return
+    followUpStartedRef.current = true
 
     const audioContext = new AudioContext({ sampleRate: 16000 })
     audioContextRef.current = audioContext
@@ -304,7 +267,6 @@ export function useCoachSession(exercise) {
 
     processor.onaudioprocess = (e) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
-      if (status !== 'conversing' && status !== 'analyzing') return
 
       const inputData = e.inputBuffer.getChannelData(0)
       const pcm16 = new Int16Array(inputData.length)
@@ -323,17 +285,18 @@ export function useCoachSession(exercise) {
 
     source.connect(processor)
     processor.connect(audioContext.destination)
-  }, [status])
+  }, [])
 
+  // Start recording the set
   const startRecording = useCallback(() => {
     if (!streamRef.current || status !== 'ready') return
 
     chunksRef.current = []
-    const recorder = new MediaRecorder(streamRef.current, {
-      mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-        ? 'video/webm;codecs=vp8'
-        : 'video/webm'
-    })
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm'
+
+    const recorder = new MediaRecorder(streamRef.current, { mimeType })
     mediaRecorderRef.current = recorder
 
     recorder.ondataavailable = (e) => {
@@ -342,7 +305,9 @@ export function useCoachSession(exercise) {
 
     recorder.onstop = async () => {
       setStatus('analyzing')
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
+      const blob = new Blob(chunksRef.current, { type: mimeType })
+
+      // Convert to base64 and send to server
       const reader = new FileReader()
       reader.onloadend = () => {
         const base64 = reader.result.split(',')[1]
@@ -361,6 +326,7 @@ export function useCoachSession(exercise) {
     setStatus('recording')
   }, [status])
 
+  // Stop recording — triggers Coach review
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop()
@@ -372,18 +338,21 @@ export function useCoachSession(exercise) {
 
     const startSession = async () => {
       try {
+        // Get camera + mic
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480 },
           audio: true
         })
-
         if (!mounted) return
         streamRef.current = stream
+
+        // Attach camera to video element
         if (videoRef.current) {
           videoRef.current.srcObject = stream
         }
 
-        const ws = new WebSocket(`${WS_URL}?exercise=${exercise}`)
+        // Open WebSocket
+        const ws = new WebSocket(WS_URL)
         wsRef.current = ws
 
         ws.onmessage = async (event) => {
@@ -399,6 +368,7 @@ export function useCoachSession(exercise) {
 
           if (message.type === 'coach_audio') {
             await playAudio(message.data)
+            // Start mic for follow-up after first Coach audio
             await startFollowUpMic(streamRef.current)
           }
 
@@ -429,11 +399,11 @@ export function useCoachSession(exercise) {
         mediaRecorderRef.current.stop()
       }
       if (wsRef.current) wsRef.current.close()
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop())
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
       if (processorRef.current) processorRef.current.disconnect()
       if (audioContextRef.current) audioContextRef.current.close()
     }
-  }, [exercise, playAudio, showCue, startFollowUpMic])
+  }, [playAudio, showCue, startFollowUpMic])
 
   return {
     status,
@@ -448,16 +418,16 @@ export function useCoachSession(exercise) {
 
 ---
 
-## Phase 4 — Session Page (Hour 3)
+## Phase 5 — Session Page (Hour 3)
 
-### File: `client/src/pages/Session.jsx`
+### `client/src/pages/Session.jsx`
 
 ```jsx
 import { useCoachSession } from '../hooks/useCoachSession'
 import CueOverlay from '../components/CueOverlay'
 import './Session.css'
 
-export default function Session({ exercise, onEnd }) {
+export default function Session({ onEnd }) {
   const {
     status,
     currentCue,
@@ -465,19 +435,20 @@ export default function Session({ exercise, onEnd }) {
     videoRef,
     startRecording,
     stopRecording
-  } = useCoachSession(exercise)
+  } = useCoachSession()
 
   const statusLabel = {
     connecting: 'Connecting to Coach...',
     ready: 'Ready — tap Record',
     recording: 'Recording your set',
-    analyzing: 'Analyzing your set...',
-    conversing: 'Coach is with you',
+    analyzing: 'Coach is reviewing your set...',
+    conversing: 'Ask Coach anything out loud',
     error: 'Connection error — check server'
-  }[status]
+  }[status] ?? status
 
   return (
     <div className="session">
+      {/* Live camera preview */}
       <video
         ref={videoRef}
         autoPlay
@@ -486,55 +457,130 @@ export default function Session({ exercise, onEnd }) {
         className="camera-feed"
       />
 
+      {/* Top status bar */}
       <div className="session-bar">
         <div className="session-info">
           {status === 'recording' && <span className="live-dot" />}
           <span className={`status ${status}`}>{statusLabel}</span>
-          {status !== 'connecting' && status !== 'error' && (
-            <span className="exercise-label">Air Squats</span>
-          )}
         </div>
-
         <button className="end-btn" onClick={onEnd}>
           End Session
         </button>
       </div>
 
+      {/* Record / Stop controls */}
       <div className="record-controls">
         {status === 'ready' && (
           <button className="record-btn" onClick={startRecording}>
-            Record Set
+            ● Record Set
           </button>
         )}
         {status === 'recording' && (
           <button className="stop-btn" onClick={stopRecording}>
-            Stop
+            ■ Stop
           </button>
         )}
-        {(status === 'analyzing' || status === 'conversing') && (
-          <p className="hint">Listen to Coach — you can ask a follow-up out loud</p>
+        {status === 'analyzing' && (
+          <div className="analyzing-indicator">
+            <span className="spinner" />
+            <span>Coach is watching your set...</span>
+          </div>
+        )}
+        {status === 'conversing' && (
+          <p className="hint">🎙 Ask Coach anything out loud</p>
         )}
       </div>
 
+      {/* Coach text overlay */}
       <CueOverlay text={currentCue} visible={cueVisible} />
     </div>
   )
 }
 ```
 
-### File: `client/src/pages/Session.css`
-
-Add to the existing Session.css:
+### `client/src/pages/Session.css`
 
 ```css
+.session {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  overflow: hidden;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.session-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+}
+
+.session-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.status {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: white;
+}
+
 .status.recording { color: #ef4444; }
 .status.analyzing { color: #f59e0b; }
 .status.conversing { color: #22c55e; }
 .status.ready { color: #94a3b8; }
+.status.error { color: #ef4444; }
+
+.end-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
+}
+
+.end-btn:hover {
+  background: rgba(255,255,255,0.25);
+}
 
 .record-controls {
   position: absolute;
-  bottom: 40px;
+  bottom: 48px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -543,44 +589,72 @@ Add to the existing Session.css:
   gap: 12px;
 }
 
-.record-btn,
-.stop-btn {
+.record-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
   padding: 16px 40px;
   border-radius: 999px;
   font-size: 18px;
   font-weight: 700;
-  border: none;
   cursor: pointer;
+  transition: opacity 0.2s;
 }
 
-.record-btn {
-  background: #ef4444;
-  color: white;
-}
+.record-btn:hover { opacity: 0.85; }
 
 .stop-btn {
   background: #ffffff;
   color: #0a0a0a;
+  border: none;
+  padding: 16px 40px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.analyzing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f59e0b;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(245, 158, 11, 0.3);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .hint {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
+  color: rgba(255,255,255,0.8);
+  font-size: 15px;
+  font-weight: 500;
   text-align: center;
   margin: 0;
 }
 ```
 
-Keep the rest of Session.css from the original guide (`.session`, `.camera-feed`, `.session-bar`, etc.).
+---
 
-### File: `client/src/components/CueOverlay.jsx`
+## Phase 6 — CueOverlay Component
 
+### `client/src/components/CueOverlay.jsx`
 ```jsx
 import './CueOverlay.css'
 
 export default function CueOverlay({ text, visible }) {
   if (!text) return null
-
   return (
     <div className={`cue-overlay ${visible ? 'visible' : 'hidden'}`}>
       <p className="cue-text">{text}</p>
@@ -589,15 +663,14 @@ export default function CueOverlay({ text, visible }) {
 }
 ```
 
-### File: `client/src/components/CueOverlay.css`
-
+### `client/src/components/CueOverlay.css`
 ```css
 .cue-overlay {
   position: absolute;
   bottom: 140px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0,0,0,0.75);
   backdrop-filter: blur(8px);
   border-radius: 12px;
   padding: 14px 28px;
@@ -613,7 +686,7 @@ export default function CueOverlay({ text, visible }) {
 .cue-text {
   font-size: 20px;
   font-weight: 600;
-  color: #ffffff;
+  color: #fff;
   margin: 0;
   line-height: 1.4;
 }
@@ -621,138 +694,56 @@ export default function CueOverlay({ text, visible }) {
 
 ---
 
-## Phase 5 — Environment Config & Build (Hour 4-5)
+## Phase 7 — Connect to Cloud Run (Hour 5)
 
-### Step 1 — Create `.env` file in client folder
+When Person 1 gives you the Cloud Run URL:
 
-**Local dev:**
-```
-VITE_WS_URL=ws://localhost:8080
-```
-
-**Dev with Person 1's ngrok (optional):**
-```
-VITE_WS_URL=wss://abc123.ngrok-free.app
-```
-
-**Judging / submission (mandatory — Person 1 Cloud Run):**
+1. Update `client/.env`:
 ```
 VITE_WS_URL=wss://coach-server-xxxxxxxx-uc.a.run.app
 ```
+Note: `wss://` not `ws://` for Cloud Run and ngrok.
 
-Use `wss://` for ngrok and Cloud Run (secure WebSocket).
-Rebuild or restart `npm run dev` after changing `.env`.
+2. Restart dev server: `npm run dev`
 
-### Step 1b — Optional: host frontend on Google Cloud (bonus polish)
+3. Run the full demo flow on the Cloud Run URL before submission.
 
-Static frontend can live on **Firebase Hosting** (same Google Cloud project):
-
-```bash
-cd client
-npm run build
-npm install -g firebase-tools
-firebase login
-firebase init hosting
-# Public directory: dist
-# Single-page app: yes
-firebase deploy
-```
-
-Judging only **requires** the **backend** on Cloud Run; Firebase is optional for a public demo URL.
-
-### Step 2 — Update vite.config.js
-
-```javascript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173
-  }
-})
-```
-
-### Step 3 — Run Locally
-
-```bash
-npm run dev
-```
-
-Open http://localhost:5173 — you should see the home screen.
-
-### Step 4 — Demo flow test (with Person 1's server running)
-
-1. Start squat session → wait for **Ready**
-2. **Record Set** → do 5 squats (~15 sec max to keep file small)
-3. **Stop** → see **Analyzing...**
-4. Coach audio + text overlay (opening feedback or praise)
-5. Ask out loud: "Why do my knees cave?" — hear follow-up
-
-### Step 5 — Final demo on Cloud Run
-
-Before judges or recording the submission video:
-
-1. Person 1 gives you the **Cloud Run** `wss://` URL
-2. Update `client/.env` and restart dev server
-3. Run full flow: Record → Stop → Coach opening → follow-up question
-4. Confirm in DevTools that WebSocket connects to `*.run.app`
-
-### Step 6 — Build for production (optional)
-
-```bash
-npm run build
-```
+4. Confirm in DevTools → Network → WS that it connects to `*.run.app`.
 
 ---
 
 ## Troubleshooting
 
-**Camera not showing:**
-- Check browser permissions
-- `videoRef` must get `srcObject` from the same stream as MediaRecorder
-- Use Chrome
-
-**WebSocket not connecting:**
-- Person 1's server running? Correct `VITE_WS_URL`?
-- DevTools → Network → WS
-
-**recording_complete not received server-side:**
-- Log blob size — keep sets under ~20 seconds
-- Check `reader.onloadend` fires before disconnect
-
-**Coach silent after Stop:**
-- Person 1 logs: video + SET_COMPLETE sent?
-- Try shorter recording
-
-**Audio not playing:**
-- User must click Record (gesture unlocks AudioContext)
-- Resume AudioContext if browser suspended it
-
-**Follow-up mic not working:**
-- `startFollowUpMic` runs after first `coach_audio`
-- Check `audio_chunk` in WS frames after opening
-
-**Analyzing forever:**
-- Person 1 Gemini error in terminal — check model name and API key
+| Problem | Fix |
+|---------|-----|
+| Camera not showing | Check browser permissions; `videoRef.current.srcObject = stream` in useEffect |
+| WebSocket not connecting | Person 1's server running? Correct `VITE_WS_URL`? DevTools → Network → WS |
+| `recording_complete` not received server-side | Cap recording at 15–20 seconds; check blob size > 0 |
+| Coach silent after Stop | Check Person 1's server logs; try shorter recording |
+| Audio not playing | User must have clicked Record first (browser gesture unlocks AudioContext) |
+| Follow-up mic not working | Starts after first `coach_audio` — check that audio is actually playing |
+| Analyzing forever | Person 1 Gemini error in terminal — check model name and API key |
+| `wss://` vs `ws://` | Use `ws://` for localhost only; `wss://` for ngrok and Cloud Run |
 
 ---
 
 ## Your Checklist
 
 - [ ] React app created and running locally
-- [ ] Home screen copy reflects record-then-review flow
-- [ ] Camera preview working on session page
-- [ ] WebSocket connects; `session_ready` received
-- [ ] Record / Stop buttons work; status states update correctly
-- [ ] `recording_complete` sent on Stop (check WS in DevTools)
-- [ ] Analyzing state shown while waiting
-- [ ] Coach opening audio plays
-- [ ] Coach opening text shows on overlay
-- [ ] Follow-up mic sends `audio_chunk` after opening
-- [ ] End Session cleans up camera and WS
-- [ ] `VITE_WS_URL` updated to Person 1's **Cloud Run** `wss://` URL for judging
-- [ ] Demo flow tested end to end on Cloud Run (not only localhost)
-- [ ] Submission video captured showing real UI + Coach audio
-- [ ] Repo README lists all team members (portal requirement)
+- [ ] Home screen shows Air Squats card
+- [ ] Camera preview showing on session page
+- [ ] WebSocket connects — `session_ready` received
+- [ ] Record button appears when ready
+- [ ] Recording starts and status changes to "recording"
+- [ ] Stop button works — status changes to "analyzing"
+- [ ] `recording_complete` sent to server (check DevTools → WS)
+- [ ] "Coach is reviewing your set..." shown during analyzing
+- [ ] Coach audio plays through speakers
+- [ ] Coach text overlay appears and fades after 8 seconds
+- [ ] Status changes to "conversing" after first audio
+- [ ] "Ask Coach anything out loud" hint shown
+- [ ] Follow-up mic sends `audio_chunk` (check DevTools → WS)
+- [ ] End Session returns to home and stops camera
+- [ ] `VITE_WS_URL` updated to Cloud Run `wss://` URL
+- [ ] Full flow tested on Cloud Run URL
+- [ ] Demo flow rehearsed — record → stop → Coach speaks → ask a question
