@@ -3,10 +3,25 @@
 
 ---
 
+## Team pivot (read first)
+
+**We are NOT streaming video frames during the set.** That was too slow for real-time cues.
+
+**New flow:**
+1. Browser **records** one set (video blob)
+2. Browser sends `recording_complete` when the user taps Stop
+3. Server sends the video to Gemini → Coach **opens** with feedback or praise (audio + text)
+4. Browser sends `audio_chunk` for **follow-up** conversation
+
+You own API key, WebSocket server, Gemini config, ngrok, and `squat.js`.
+
+---
+
 ## Your Role
 You are responsible for:
 - Setting up the temporary Google account and getting the API key
-- Building the WebSocket server that connects the browser to Gemini Live
+- Building the WebSocket server that connects the browser to Gemini
+- Handling **recorded video** after each set (not continuous frames)
 - Exposing the server to the internet so the demo works
 - Making sure the API key never gets pushed to GitHub
 
@@ -25,6 +40,9 @@ automatically kill it and nothing will work. You won't get a warning.
 
 **3. Push all your code to your own personal GitHub before 10pm.**
 The temporary account is deleted the next day. Your code is not.
+
+**4. Align the Live model with Person 2's testing** (e.g. `gemini-2.0-flash-live-001`
+or `gemini-3.1-flash-live-preview` — same model Person 2 validated in AI Studio).
 
 ---
 
@@ -143,63 +161,49 @@ Create the folder first:
 mkdir prompts
 ```
 
+Use Person 2's **canonical post-set prompt** (keep in sync with DiegoTasks.md):
+
 ```javascript
 export const buildSquatPrompt = () => `
-You are Coach, an expert calisthenics coach watching an athlete
-perform air squats in real time through their camera.
+LANGUAGE (CRITICAL):
+- You MUST speak and write only in English. Never use any other language.
 
-CRITICAL RULES:
-- Give ONE cue at a time. Maximum one sentence.
-- Wait at least 4 seconds between cues.
-- Be specific: "push your knees out" not "fix your knees"
-- Reference body parts directly: "your left knee", "your hips", "your chest"
-- If form is good, say it: "Good depth", "That's it", "Nice rep"
-- If the athlete talks to you, answer briefly and let them keep going
-- Never give a list of corrections. Fix the most important thing first.
+You are Coach, an expert calisthenics coach. The athlete records ONE set of air squats,
+then stops recording. You receive their recorded video of that set.
 
-WHAT TO WATCH FOR:
+MODE — POST-SET REVIEW (not live mid-rep):
+- Do NOT coach rep-by-rep during the recording. Analyze the full set when it ends.
+- When the recording ends (or you receive SET_COMPLETE), YOU speak first.
+- Open with ONE short message (2–3 sentences max) that either:
+  (A) names the 1–2 most important faults you saw and one cue each, OR
+  (B) gives genuine positive affirmation if form was good overall.
+- Pick A or B from what you actually saw — do not be generic.
+- After your opening, answer follow-up questions briefly. Stay conversational but expert.
 
-Knee cave (most common):
-- Knees collapsing inward
-- Cues: "Push your knees out over your toes"
-         "Spread the floor with your feet"
-         "Drive those knees out"
+OPENING EXAMPLES (adapt to what you saw):
+- Feedback: "On that set your knees caved on reps 3 and 5. Push your knees out over your toes. Want to fix stance or depth next?"
+- Praise: "Strong set — good depth and control. Your chest stayed tall. Keep that tempo."
 
-Chest falling forward:
-- Torso leaning too far forward
-- Cues: "Chest up"
-         "Stay tall through your torso"
+RULES:
+- Maximum 2 faults in the opening. Prioritize knee cave, then depth, then chest forward.
+- Cues must be short (8 words or fewer when possible). Name body parts and actions.
+- If form was mixed, lead with the biggest issue; add one positive only if earned.
+- Do not list every rep. Do not lecture. Only describe what is visible in the video.
+- Do not repeat the same cue twice in a row in follow-up.
 
-Heels rising:
-- Weight shifting to toes
-- Cues: "Weight in your heels"
-         "Drive your heels into the floor"
-         "Sit back more"
+WHAT TO LOOK FOR IN THE SET:
+Knee cave, chest forward, heels rising, shallow depth, butt wink,
+stance too narrow/wide, rushing descent, no lockout at top, arms not helping balance.
 
-Not hitting depth:
-- Hips not reaching parallel
-- Cues: "Go deeper — hips below parallel"
-         "Sit all the way down"
-
-Butt wink:
-- Lower back rounding at the bottom
-- Cues: "Brace your core at the bottom"
-         "Keep your lower back neutral"
-
-Good squat:
-- Feet shoulder width, toes slightly out
-- Knees tracking over toes
-- Chest tall
-- Hip crease below top of knee at bottom
-- Weight through whole foot
-- Core braced throughout
-
-You are watching them RIGHT NOW. React to what you see immediately.
-Keep it short. They are mid-movement.
+For "why" questions, answer briefly with real coaching concepts.
+You are reviewing a completed set. Open the conversation in English.
 `
 ```
 
 ### File: `server/index.js`
+
+**Pivot:** No `video_frame` streaming. On `recording_complete`, send the full
+video to Gemini Live, then a text trigger so Coach opens the conversation.
 
 ```javascript
 import express from 'express'
@@ -213,9 +217,8 @@ dotenv.config()
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '50mb' }))
 
-// Health check
 app.get('/', (req, res) => res.send('Coach server running'))
 
 const server = app.listen(process.env.PORT || 8080, () => {
@@ -223,61 +226,70 @@ const server = app.listen(process.env.PORT || 8080, () => {
 })
 
 const wss = new WebSocketServer({ server })
-
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+
+// Match model Person 2 tested in AI Studio
+const LIVE_MODEL = 'gemini-2.0-flash-live-001'
 
 wss.on('connection', async (browserSocket) => {
   console.log('Browser connected')
 
   let geminiSession = null
 
-  try {
-    // Open Gemini Live session
-    geminiSession = await client.live.connect({
-      model: 'gemini-2.0-flash-live-001',
-      config: {
-        system_instruction: buildSquatPrompt(),
-        response_modalities: [Modality.AUDIO],
-        tools: [{ google_search: {} }]
-      },
-      callbacks: {
-        onmessage: (message) => {
-          if (message.serverContent?.modelTurn?.parts) {
-            for (const part of message.serverContent.modelTurn.parts) {
-              if (part.inlineData) {
-                // Send audio back to browser
-                browserSocket.send(JSON.stringify({
-                  type: 'coach_audio',
-                  data: part.inlineData.data,
-                  mimeType: part.inlineData.mimeType
-                }))
+  const openGeminiSession = async () => {
+    let attempts = 0
+    while (attempts < 3) {
+      try {
+        return await client.live.connect({
+          model: LIVE_MODEL,
+          config: {
+            system_instruction: buildSquatPrompt(),
+            response_modalities: [Modality.AUDIO],
+            tools: [{ google_search: {} }]
+          },
+          callbacks: {
+            onmessage: (message) => {
+              if (message.serverContent?.modelTurn?.parts) {
+                for (const part of message.serverContent.modelTurn.parts) {
+                  if (part.inlineData) {
+                    browserSocket.send(JSON.stringify({
+                      type: 'coach_audio',
+                      data: part.inlineData.data,
+                      mimeType: part.inlineData.mimeType
+                    }))
+                  }
+                  if (part.text) {
+                    browserSocket.send(JSON.stringify({
+                      type: 'coach_text',
+                      text: part.text
+                    }))
+                  }
+                }
               }
-              if (part.text) {
-                // Send text cue for overlay
-                browserSocket.send(JSON.stringify({
-                  type: 'coach_text',
-                  text: part.text
-                }))
-              }
-            }
+            },
+            onerror: (error) => {
+              console.error('Gemini error:', error)
+              browserSocket.send(JSON.stringify({
+                type: 'error',
+                message: error.message
+              }))
+            },
+            onclose: () => console.log('Gemini session closed')
           }
-        },
-        onerror: (error) => {
-          console.error('Gemini error:', error)
-          browserSocket.send(JSON.stringify({
-            type: 'error',
-            message: error.message
-          }))
-        },
-        onclose: () => {
-          console.log('Gemini session closed')
-        }
+        })
+      } catch (e) {
+        attempts++
+        console.error(`Gemini connect attempt ${attempts} failed:`, e)
+        await new Promise((r) => setTimeout(r, 2000))
       }
-    })
+    }
+    throw new Error('Failed to open Gemini session after 3 attempts')
+  }
 
+  try {
+    geminiSession = await openGeminiSession()
     console.log('Gemini Live session opened successfully')
     browserSocket.send(JSON.stringify({ type: 'session_ready' }))
-
   } catch (error) {
     console.error('Failed to open Gemini session:', error)
     browserSocket.send(JSON.stringify({
@@ -287,20 +299,30 @@ wss.on('connection', async (browserSocket) => {
     return
   }
 
-  // Receive data from browser and forward to Gemini
   browserSocket.on('message', async (rawData) => {
     try {
       const message = JSON.parse(rawData)
 
-      if (message.type === 'video_frame') {
+      // Person 3 sends recorded set when user taps Stop
+      if (message.type === 'recording_complete') {
+        console.log('Set recording received, sending to Gemini...')
+
         await geminiSession.sendRealtimeInput({
           video: {
             data: message.data,
-            mimeType: 'image/jpeg'
+            mimeType: message.mimeType || 'video/webm'
           }
         })
+
+        // Trigger Coach to open the conversation (feedback or praise)
+        await geminiSession.sendRealtimeInput({
+          text: 'SET_COMPLETE: The athlete finished their set. Speak your opening message now in English only.'
+        })
+
+        browserSocket.send(JSON.stringify({ type: 'review_started' }))
       }
 
+      // Follow-up conversation after the opening
       if (message.type === 'audio_chunk') {
         await geminiSession.sendRealtimeInput({
           audio: {
@@ -312,6 +334,10 @@ wss.on('connection', async (browserSocket) => {
 
     } catch (error) {
       console.error('Error forwarding to Gemini:', error)
+      browserSocket.send(JSON.stringify({
+        type: 'error',
+        message: 'Failed to analyze set'
+      }))
     }
   })
 
@@ -429,23 +455,17 @@ anywhere else. Do not forget this.
 - Ask an organizer — they can reset accounts
 
 **503 / model overwhelmed errors:**
-- The model is under heavy load from other hackathon teams
-- Switch to a different model version
-- Add a retry with a 2 second delay:
-```javascript
-// Wrap your gemini call in a retry
-const sleep = (ms) => new Promise(r => setTimeout(r, ms))
-let attempts = 0
-while (attempts < 3) {
-  try {
-    geminiSession = await client.live.connect(...)
-    break
-  } catch (e) {
-    attempts++
-    await sleep(2000)
-  }
-}
-```
+- Switch `LIVE_MODEL` to the model Person 2 confirmed works
+- Retry loop is already in `openGeminiSession`
+
+**Coach silent after recording_complete:**
+- Log that video payload arrived (check base64 length)
+- Confirm `SET_COMPLETE` text is sent after video
+- Try `mimeType: 'video/webm'` — match what Person 3's MediaRecorder produces
+
+**Payload too large:**
+- Person 3 should cap recording length (~15–20 sec) or lower bitrate
+- `express.json({ limit: '50mb' })` is set above
 
 **WebSocket connection refused:**
 - Make sure `node index.js` is running in a terminal
@@ -453,7 +473,7 @@ while (attempts < 3) {
 - Check Person 3 is using `wss://` not `ws://` for the ngrok URL
 
 **Gemini session not opening:**
-- Check the model name is correct
+- Check the model name matches Person 2's Studio test
 - Check GEMINI_API_KEY is in your .env file
 - Check .env file is in the server folder not the root
 
@@ -473,11 +493,12 @@ while (attempts < 3) {
 - [ ] .gitignore created with .env listed BEFORE first commit
 - [ ] .env file created with API key
 - [ ] Server folder set up with npm packages installed
-- [ ] index.js and prompts/squat.js created
+- [ ] Post-set `squat.js` and updated `index.js` created
+- [ ] `recording_complete` handler working (video + SET_COMPLETE trigger)
 - [ ] Server running locally on port 8080
 - [ ] Gemini Live session opening successfully
 - [ ] ngrok installed and running
 - [ ] ngrok WebSocket URL sent to Person 3
-- [ ] Person 3 confirmed connection working end to end
+- [ ] Person 3 confirmed record → stop → Coach opening works end to end
 - [ ] Code pushed to personal GitHub before 9pm
 - [ ] .env confirmed NOT in the GitHub push

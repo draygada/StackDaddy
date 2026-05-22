@@ -3,258 +3,269 @@
 
 ---
 
+## Team pivot (read first)
+
+**We are NOT doing real-time mid-rep coaching.** Live video streaming was too slow
+and unreliable in AI Studio.
+
+**New flow:**
+1. Athlete **records one set** of air squats in the app
+2. Athlete taps **Stop**
+3. Coach **speaks first** — either corrective feedback or positive affirmation
+4. Athlete can **reply** and continue the conversation (e.g. "Why do my knees cave?")
+
+You own the **system prompt**, coaching quality, English-only responses, and testing.
+Person 1 wires Gemini on the server; Person 3 builds record/stop UI.
+
+---
+
 ## Your Role
 You are responsible for:
-- Making sure Gemini Live is working correctly end to end
-- Refining the system prompt and knowledge base so Coach sounds credible
-- Testing and debugging the coaching quality
-- Adding Google Search Grounding
-- Supporting Person 1 on the Gemini session logic if they get stuck
+- Refining the post-set review system prompt in `server/prompts/squat.js`
+- Testing coaching quality (openings + follow-up questions)
+- Verifying Google Search Grounding on "why" questions after the opening
+- Supporting Person 1 on Gemini video + session logic if they get stuck
 
-You are the AI expert on the team. If Coach says something wrong or
-vague, it's your job to fix the prompt until it sounds like a real coach.
+You are the AI expert on the team. If Coach's opening is vague, wrong language,
+or generic, fix the prompt until it sounds like a real coach.
 
 ---
 
-## Phase 1 — Test Gemini Live in AI Studio (Hour 1)
-### Do this while Person 1 sets up Cloud infrastructure.
-### No code needed yet — just verify the model works and test prompts.
+## Phase 1 — Test the prompt (Hour 1)
+### Do this while Person 1 sets up the server. No repo code required yet.
 
 ### Step 1 — Open Google AI Studio
-1. Go to https://aistudio.google.com
-2. Sign in with your Google account
-3. Click "Stream Realtime" in the left sidebar
-   (this is the Live API interface)
+1. Go to https://aistudio.google.com (hackathon account in Hackathon Chrome profile)
+2. Use **Chat** with a model that accepts **video upload** (e.g. Gemini 2.0 Flash),
+   OR use **Stream Realtime** and say **"Set done"** after you finish a set on camera
+   (upload is closer to the real app)
 
-### Step 2 — Test the Model
-1. Select model: `gemini-3.1-flash-live-preview`
-2. Click the microphone icon and talk to it
-3. Make sure you get a voice response back
-4. If it works, the model is accessible and your API key is valid
+### Step 2 — Paste the system prompt
+1. Open **System instructions**
+2. Paste the full prompt from **Canonical prompt** below (same as Eli's `squat.js`)
 
-### Step 3 — Test Your System Prompt
-1. In AI Studio, find the "System Instructions" field
-2. Paste the squat coaching prompt (from Person 1's squat.js file)
-3. Enable camera in AI Studio
-4. Do some air squats in front of your camera
-5. Listen to what Coach says
-6. If the cues are too long, too generic, or wrong — edit the prompt
-7. Keep testing until Coach sounds like a real coach
+### Step 3 — Test with video
+1. On your phone, record **10–15 seconds**: 5 air squats with **obvious knee cave** on reps 3–4
+2. Upload the clip to AI Studio (or finish a set on camera + say "Set done" in Live)
+3. Coach should **open the conversation** without you asking first
+4. Check: **English only**, **2–3 sentences**, names **1–2 real faults** or gives **praise**
 
-### What Good Coaching Sounds Like
-Good: "Push your knees out over your toes"
-Bad: "I can see that your knees are caving inward which is a common issue"
+### Step 4 — Test good form
+1. Record a set with **good depth** and control
+2. Opening should be **affirmation**, not nitpicking
 
-Good: "Chest up — you're falling forward"
-Bad: "Your chest position could be improved"
+### What a good opening sounds like
 
-Good: "Go deeper — break parallel"
-Bad: "Try to squat a little lower if you can"
+**Feedback:**
+> "On that set your knees caved on the middle reps. Push your knees out over your toes. Want to work on depth or stance next?"
 
-Every cue should be:
-- One sentence
-- Specific body part named
-- Actionable direction given
-- Under 8 words if possible
+**Praise:**
+> "Strong set — good depth and control. Your chest stayed tall. Keep that tempo."
 
-### Step 4 — Document What Works
-Write down the exact prompt wording that produces good cues.
-This goes into the final system prompt that Person 1 deploys.
+**Bad:**
+> "I can see several areas for improvement in your squat mechanics..."
+> (too long, generic, or non-English)
+
+### Step 5 — Document what works
+Save the exact opening phrasing for the demo. Send the final prompt to Person 1.
 
 ---
 
-## Phase 2 — Refine the Knowledge Base (Hour 2)
+## Phase 2 — Refine the knowledge base (Hour 2)
 
-### Your main job in hour 2 is making Coach smarter.
+The prompt lives in Person 1's `server/prompts/squat.js`. Expand based on testing.
 
-The base squat knowledge base is in Person 1's `server/prompts/squat.js`.
-Your job is to expand and refine it based on what you learned in AI Studio.
+### Common issues to fix
 
-### Common Issues to Fix
-
-**Issue: Coach gives too many cues at once**
-Fix: Add to prompt:
+**Issue: Coach waits for the user to speak first**
+Fix — already in prompt; reinforce:
 ```
-Never give more than one correction per 5 seconds.
-Pick the most important fault you see and address only that.
+When the set ends, YOU speak first. The athlete does not prompt you.
 ```
 
-**Issue: Coach is too verbose**
-Fix: Add to prompt:
+**Issue: Coach responds in another language**
+Fix:
 ```
-Maximum 8 words per cue. Be as short as possible.
-```
-
-**Issue: Coach doesn't react fast enough**
-Fix: This is a latency issue, not a prompt issue.
-Tell Person 1 to reduce the video frame interval from 500ms to 300ms.
-
-**Issue: Coach gives generic advice not related to what it sees**
-Fix: Add to prompt:
-```
-Only give cues for faults you can actually see right now.
-Do not give general advice. React only to what is visible.
+LANGUAGE (CRITICAL): You MUST speak and write only in English.
 ```
 
-**Issue: Coach keeps repeating the same cue**
-Fix: Add to prompt:
+**Issue: Opening is too long or lists every rep**
+Fix:
 ```
-Do not repeat the same cue twice in a row.
-If you already called out knee cave, move to the next issue.
+Opening is maximum 2–3 sentences. Maximum 2 faults. Do not narrate every rep.
 ```
 
-### Extended Squat Knowledge to Add
+**Issue: Coach is too harsh on a good set**
+Fix:
+```
+If form was good overall, opening must be genuine praise — do not invent faults.
+```
 
-Add these fault/cue pairs to the knowledge base if Coach is missing them:
+**Issue: Coach is too generic**
+Fix:
+```
+Only describe what you saw in the recording. Name rep timing if helpful ("reps 3–4").
+```
+
+**Issue: Follow-up "why" answers are shallow**
+Fix: Verify `tools: [{ google_search: {} }]` on the server (Person 1). Tune prompt:
+```
+For why questions, answer briefly with real coaching concepts (muscles, mobility, cues).
+```
+
+### Extended squat knowledge to add if missing
 
 ```
-Feet too narrow or too wide:
-- Optimal: shoulder width, toes 15-30 degrees out
-- Cue: "Widen your stance slightly"
-       "Toes out a little more"
-
-Arms not used for balance:
-- Beginners often let arms hang
-- Cue: "Arms out in front for balance"
-       "Reach your arms forward as you squat"
-
-Rushing the descent:
-- Dropping too fast, losing control
-- Cue: "Control the descent — slow down"
-       "3 seconds down"
-
-Not locking out at the top:
-- Not fully standing between reps
-- Cue: "Stand all the way up — full lockout"
-       "Squeeze your glutes at the top"
+Feet too narrow or too wide → "Widen your stance slightly" / "Toes out a little more"
+Arms not used for balance → "Arms out in front for balance"
+Rushing the descent → "Control the descent — slow down"
+Not locking out at the top → "Stand all the way up — full lockout"
 ```
 
 ---
 
-## Phase 3 — Google Search Grounding (Hour 3-4)
+## Phase 3 — Google Search Grounding (Hour 3–4)
 
-### What It Does
-Allows Gemini to search Google in real time to back up its coaching
-answers with real sources. Especially useful for the Call Coach mode
-and when athletes ask "why" questions.
+### What it does
+Backs up follow-up answers when the athlete asks **why** (after the opening).
 
-### How to Enable It
-It's already in Person 1's server code:
+### How to enable
+Already in Person 1's server:
 ```javascript
 tools: [{ google_search: {} }]
 ```
 
-That's the entire implementation. Google handles the rest.
+### How to verify
+After Coach gives the opening, ask (voice or text):
+> "Why do my knees cave during squats?"
 
-### How to Verify It's Working
-During a call session, ask Coach:
-"Why do my knees cave during squats?"
-
-If grounding is working, Coach should give a specific answer about
-valgus collapse, hip abductor weakness, or ankle mobility — backed
-by real coaching knowledge pulled from the web.
-
-If Coach gives a generic answer, grounding may not be working.
-Check that the tools parameter is being passed correctly to the
-Gemini Live session config.
+Working: valgus collapse, weak hip abductors, ankle mobility, etc.
+Not working: generic filler — Person 1 checks `tools` in session config.
 
 ---
 
-## Phase 4 — Coaching Quality Testing (Hour 4)
+## Phase 4 — Coaching quality testing (Hour 4)
 
-### This is the most important thing you do all day.
-### The demo lives or dies on coaching quality.
+### Testing protocol
 
-### Testing Protocol
-Do 3 rounds of squats with intentionally bad form:
+**Test A — Bad set (knee cave)**
+- Record ~5 reps, knees cave on middle reps
+- Stop → Coach opens with knee cave + short cue
+- Opening in **English**, within a reasonable wait (processing state in app)
 
-**Round 1 — Knee cave**
-Let your knees collapse inward.
-Coach should say something about knees within 5 seconds.
+**Test B — Good set**
+- Record controlled reps, solid depth
+- Stop → Coach opens with **praise**, not fake corrections
 
-**Round 2 — Chest forward**
-Lean your torso forward excessively.
-Coach should say "chest up" or equivalent.
+**Test C — Follow-up**
+- Ask "Why do my knees cave?"
+- Answer should be specific (grounding if enabled)
 
-**Round 3 — Shallow depth**
-Only squat to 90 degrees, don't break parallel.
-Coach should call out depth.
+**Test D — English only**
+- If account locale is mixed, confirm opening stays English
 
-**Round 4 — Good form**
-Do a perfect squat.
-Coach should give positive feedback: "Good depth", "That's it"
+### If a test fails
 
-### If Any Round Fails
-The cue didn't come → prompt needs to be more explicit about that fault
-The cue was wrong → add clarification to the knowledge base
-The cue was too slow → tell Person 1 to reduce frame interval
-The cue was too long → add word limit to prompt
+| Failure | Fix |
+|--------|-----|
+| No opening / user must speak first | Strengthen SESSION BEHAVIOR in prompt; Person 1 sends `SET_COMPLETE` trigger after video |
+| Wrong fault | Add clearer fault description in knowledge base |
+| Too long | Tighten "2–3 sentences max" |
+| Wrong language | Strengthen LANGUAGE block |
+| Slow processing | Normal for video upload; show "Analyzing..." in UI (Person 3) |
 
-### Write Down Your Test Results
-Share with the team before the demo so everyone knows
-exactly what works and what to show the judges.
+### Share results with the team before the demo
 
 ---
 
-## Phase 5 — Demo Preparation (Hour 5)
+## Phase 5 — Demo preparation (Hour 5)
 
-### Your job is to make sure the demo squat is perfect.
+### Demo flow (rehearse 5×)
 
-The demo flow:
-1. Person doing the demo intentionally does a bad squat (knee cave)
-2. Coach immediately calls it out
-3. Person fixes it
-4. Coach confirms: "That's it"
+1. Athlete taps **Record** and does **5 squats** with **knee cave** on reps 3–4
+2. Athlete taps **Stop** → UI shows **Analyzing...**
+3. Coach **speaks first**: knee cave + one cue
+4. Athlete asks: **"Why do my knees cave?"**
+5. Coach gives a short, credible answer
 
-Practice this exact sequence 5 times before the judges arrive.
-You should be able to predict exactly what Coach will say.
+**Backup demo:** Good-form set → Coach praises the set.
 
-### Backup Plan
-If Gemini Live has latency issues during the demo:
-- Do the squat slower and hold the bad position longer
-- Give Gemini more time to process the video frame
-- Coach will respond — it just might take 3-4 seconds
+### Talking points for judges
 
-### Talking Points for the Judges
-Be ready to explain:
-- "We're using Gemini Live API for real-time video + audio"
-- "The model watches continuous video frames and responds with voice"
-- "Google Search Grounding backs up the coaching with real sources"
-- "The system prompt contains a detailed coaching knowledge base"
+- "Athlete records a set; we send the video to Gemini for analysis"
+- "Coach opens the conversation with feedback or praise — no live latency during reps"
+- "Google Search Grounding backs up why questions in the follow-up"
+- "System prompt is a structured coaching knowledge base for squat review"
+
+---
+
+## Canonical prompt (copy to AI Studio and Person 1's squat.js)
+
+```
+LANGUAGE (CRITICAL):
+- You MUST speak and write only in English. Never use any other language.
+
+You are Coach, an expert calisthenics coach. The athlete records ONE set of air squats,
+then stops recording. You receive their recorded video of that set.
+
+MODE — POST-SET REVIEW (not live mid-rep):
+- Do NOT coach rep-by-rep during the recording. Analyze the full set when it ends.
+- When the recording ends (or you receive SET_COMPLETE), YOU speak first.
+- Open with ONE short message (2–3 sentences max) that either:
+  (A) names the 1–2 most important faults you saw and one cue each, OR
+  (B) gives genuine positive affirmation if form was good overall.
+- Pick A or B from what you actually saw — do not be generic.
+- After your opening, answer follow-up questions briefly. Stay conversational but expert.
+
+OPENING EXAMPLES (adapt to what you saw):
+- Feedback: "On that set your knees caved on reps 3 and 5. Push your knees out over your toes. Want to fix stance or depth next?"
+- Praise: "Strong set — good depth and control. Your chest stayed tall. Keep that tempo."
+
+RULES:
+- Maximum 2 faults in the opening. Prioritize knee cave, then depth, then chest forward.
+- Cues must be short (8 words or fewer when possible). Name body parts and actions.
+- If form was mixed, lead with the biggest issue; add one positive only if earned.
+- Do not list every rep. Do not lecture. Only describe what is visible in the video.
+- Do not repeat the same cue twice in a row in follow-up.
+
+WHAT TO LOOK FOR IN THE SET:
+Knee cave, chest forward, heels rising, shallow depth, butt wink,
+stance too narrow/wide, rushing descent, no lockout at top, arms not helping balance.
+
+For "why" questions, answer briefly with real coaching concepts.
+You are reviewing a completed set. Open the conversation in English.
+```
 
 ---
 
 ## Troubleshooting
 
-**Coach not responding to video at all:**
-- Check that video frames are actually being sent (ask Person 3)
-- Verify the mimeType is `image/jpeg`
-- Check Gemini session logs on Person 1's server
+**Coach never speaks after Stop:**
+- Person 3 sent `recording_complete`? Person 1 logs show video received?
+- Person 1 sent `SET_COMPLETE` text trigger after video?
 
-**Coach responding with text but no audio:**
-- Check response_modalities includes AUDIO
-- Make sure the audio is being forwarded to the browser
+**Opening in wrong language:**
+- Strengthen LANGUAGE block; new Gemini session after prompt change
 
-**Coach hallucinating (saying wrong things):**
-- Add more specific fault descriptions to the knowledge base
-- Add explicit instruction: "Only cue what you can actually see"
+**Opening is generic:**
+- Add rep-specific examples to prompt; use a clearer bad-form demo video
 
-**Latency too high (5+ seconds before Coach responds):**
-- Reduce video frame interval: 500ms → 300ms
-- This is a network/API issue, not a prompt issue
+**Only text, no voice:**
+- Person 1: `response_modalities` includes AUDIO; Person 3 plays `coach_audio`
+
+**Follow-up why questions weak:**
+- Check `google_search` tool; ask Person 1 to verify tools in config
 
 ---
 
 ## Your Checklist
 
-- [ ] AI Studio Live API tested and working
-- [ ] Squat coaching prompt tested in AI Studio
-- [ ] Coaching cues are short, specific, and accurate
-- [ ] Knowledge base covers all major squat faults
-- [ ] Google Search Grounding enabled and verified
-- [ ] Knee cave demo tested — Coach responds correctly
-- [ ] Chest forward demo tested — Coach responds correctly
-- [ ] Shallow depth demo tested — Coach responds correctly
-- [ ] Good form tested — Coach gives positive feedback
-- [ ] Demo sequence rehearsed 5 times
+- [ ] Post-set prompt pasted and tested (bad set opening)
+- [ ] Good-set opening tested (praise)
+- [ ] Openings are English, 2–3 sentences, specific
+- [ ] Knowledge base covers major squat faults
+- [ ] Final prompt sent to Person 1 for `squat.js`
+- [ ] Google Search Grounding verified on a why question
+- [ ] Bad-set demo flow rehearsed with Person 3
+- [ ] Good-set backup demo rehearsed
 - [ ] Talking points prepared for judges
