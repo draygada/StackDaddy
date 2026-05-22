@@ -107,6 +107,9 @@ wss.on('connection', async (browserSocket, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`)
   const exercise = url.searchParams.get('exercise') || 'squat'
   let geminiSession = null
+  let coachingInterval = null
+  let videoFrames = 0
+  let audioChunks = 0
 
   console.log(`Browser connected for ${exercise}`)
 
@@ -114,6 +117,23 @@ wss.on('connection', async (browserSocket, request) => {
     geminiSession = await openGeminiSession(browserSocket, exercise)
     console.log('Gemini Live session opened successfully')
     sendJson(browserSocket, { type: 'session_ready' })
+
+    coachingInterval = setInterval(() => {
+      if (videoFrames === 0) {
+        console.log('Waiting for video frames from browser...')
+        return
+      }
+
+      console.log(
+        `Forwarded ${videoFrames} video frames and ${audioChunks} audio chunks`
+      )
+
+      geminiSession.sendClientContent({
+        turns:
+          'Analyze the latest camera view. If you see a squat form issue, give one short coaching cue. If form looks good, give one short positive cue.',
+        turnComplete: true
+      })
+    }, 5000)
   } catch (error) {
     console.error('Failed to open Gemini session:', error)
     sendJson(browserSocket, {
@@ -129,7 +149,8 @@ wss.on('connection', async (browserSocket, request) => {
       const message = JSON.parse(rawData.toString())
 
       if (message.type === 'video_frame') {
-        await geminiSession.sendRealtimeInput({
+        videoFrames += 1
+        geminiSession.sendRealtimeInput({
           video: {
             data: message.data,
             mimeType: 'image/jpeg'
@@ -138,7 +159,8 @@ wss.on('connection', async (browserSocket, request) => {
       }
 
       if (message.type === 'audio_chunk') {
-        await geminiSession.sendRealtimeInput({
+        audioChunks += 1
+        geminiSession.sendRealtimeInput({
           audio: {
             data: message.data,
             mimeType: 'audio/pcm;rate=16000'
@@ -152,6 +174,7 @@ wss.on('connection', async (browserSocket, request) => {
 
   browserSocket.on('close', async () => {
     console.log('Browser disconnected')
+    clearInterval(coachingInterval)
 
     if (geminiSession) {
       try {
