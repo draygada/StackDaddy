@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { GoogleGenAI, Modality } from '@google/genai'
+import { GoogleGenAI, Modality, Type } from '@google/genai'
 import { WebSocketServer } from 'ws'
 import { buildSquatPrompt } from './prompts/squat.js'
 
@@ -86,6 +86,22 @@ function cleanCue(text) {
     .trim()
 }
 
+function isUsableCue(cue) {
+  const words = cue.split(/\s+/).filter(Boolean)
+  return cue.length >= 4 && words.length >= 2 && words.length <= 10
+}
+
+function parseCueResponse(text) {
+  const cleaned = cleanCue(text)
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    return cleanCue(parsed.cue || '')
+  } catch {
+    return cleaned
+  }
+}
+
 async function generateFrameCue({ frame, exercise, lastCue }) {
   const response = await genai.models.generateContent({
     model: textModel,
@@ -100,19 +116,34 @@ async function generateFrameCue({ frame, exercise, lastCue }) {
             }
           },
           {
-            text: `Analyze this latest ${exercise} frame. Return exactly one short coaching cue for the athlete right now. Maximum 8 words. If form looks good, return one short positive cue. Do not explain. Do not mention that this is an image. Do not repeat this previous cue: ${lastCue || 'none'}.`
+            text: `Analyze this latest ${exercise} frame. Choose the best cue right now. Use one of the cue styles from the system instructions. Do not repeat this previous cue: ${lastCue || 'none'}.`
           }
         ]
       }
     ],
     config: {
       systemInstruction: getExercisePrompt(exercise),
-      temperature: 0.2,
-      maxOutputTokens: 24
+      temperature: 0,
+      maxOutputTokens: 48,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          cue: {
+            type: Type.STRING
+          }
+        },
+        required: ['cue']
+      }
     }
   })
 
-  return cleanCue(response.text || '')
+  const cue = parseCueResponse(response.text || '')
+
+  if (isUsableCue(cue)) return cue
+
+  console.log(`Rejected weak fallback cue: ${cue || '[empty]'}`)
+  return lastCue === 'Chest up' ? 'Push your knees out' : 'Chest up'
 }
 
 async function openGeminiSession(browserSocket, exercise) {
