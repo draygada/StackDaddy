@@ -1,6 +1,6 @@
 # StackDaddy Server
 
-WebSocket bridge between the browser frontend and Gemini Live.
+WebSocket bridge between the browser frontend and Gemini video review.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Put the temporary Google AI Studio key in `.env`:
 GEMINI_API_KEY=your_key_here
 PORT=8080
 HOST=127.0.0.1
-GEMINI_LIVE_MODEL=gemini-live-2.5-flash-preview
+GEMINI_REVIEW_MODEL=gemini-2.5-flash
 ```
 
 Do not commit `.env`.
@@ -62,12 +62,11 @@ Restart the frontend after changing `VITE_WS_URL`.
 
 The browser sends:
 
-- `video_frame`: base64 JPEG image.
-- `audio_chunk`: base64 PCM16 audio.
+- `recording_complete`: base64 WebM video after Stop.
 
 The server sends:
 
-- `session_ready`: Gemini Live is connected.
+- `session_ready`: server is ready to receive a recording.
+- `review_started`: server received the recording.
 - `coach_text`: cue text for the overlay.
-- `coach_audio`: base64 audio for playback.
 - `error`: connection or Gemini errors.

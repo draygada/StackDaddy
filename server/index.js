@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { GoogleGenAI, Modality, Type } from '@google/genai'
+import { GoogleGenAI, Type } from '@google/genai'
 import { WebSocketServer } from 'ws'
 import { buildSquatPrompt } from './prompts/squat.js'
 
@@ -10,10 +10,7 @@ dotenv.config({ quiet: true })
 const port = process.env.PORT || 8080
 const host = process.env.HOST || '127.0.0.1'
 const apiKey = process.env.GEMINI_API_KEY
-const liveModel = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview'
-const textModel = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash'
-const responseModality =
-  process.env.GEMINI_RESPONSE_MODALITY === 'AUDIO' ? Modality.AUDIO : Modality.TEXT
+const reviewModel = process.env.GEMINI_REVIEW_MODEL || 'gemini-2.5-flash'
 
 if (!apiKey || apiKey === 'PASTE_THE_KEY_HERE' || apiKey === 'your_key_here') {
   console.error('Missing GEMINI_API_KEY. Add the real key to server/.env before starting.')
@@ -22,7 +19,9 @@ if (!apiKey || apiKey === 'PASTE_THE_KEY_HERE' || apiKey === 'your_key_here') {
 
 const app = express()
 app.use(cors())
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '80mb' }))
+
+const genai = new GoogleGenAI({ apiKey })
 
 app.get('/', (req, res) => {
   res.send('StackDaddy server running')
@@ -31,13 +30,13 @@ app.get('/', (req, res) => {
 app.get('/grounding-check', async (req, res) => {
   try {
     const response = await genai.models.generateContent({
-      model: textModel,
+      model: reviewModel,
       contents:
         'In one short paragraph, why do knees cave inward during squats?',
       config: {
         tools: [{ googleSearch: {} }],
         temperature: 0.2,
-        maxOutputTokens: 120
+        maxOutputTokens: 140
       }
     })
 
@@ -57,11 +56,13 @@ const httpServer = app.listen(port, host, () => {
   console.log(`StackDaddy server running at http://${host}:${port}`)
 })
 
-const wss = new WebSocketServer({ server: httpServer })
-const genai = new GoogleGenAI({ apiKey })
-
 httpServer.on('error', (error) => {
   console.error('HTTP server error:', error.message)
+})
+
+const wss = new WebSocketServer({
+  server: httpServer,
+  maxPayload: 80 * 1024 * 1024
 })
 
 wss.on('error', (error) => {
@@ -74,250 +75,111 @@ function sendJson(socket, payload) {
   }
 }
 
-function getExercisePrompt(exercise) {
-  if (exercise === 'squat') return buildSquatPrompt()
-  return buildSquatPrompt()
-}
-
-function cleanCue(text) {
+function cleanReview(text) {
   return text
     .replace(/^["'\s]+|["'\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-function isUsableCue(cue) {
-  const words = cue.split(/\s+/).filter(Boolean)
-  return cue.length >= 4 && words.length >= 2 && words.length <= 10
-}
-
-function parseCueResponse(text) {
-  const cleaned = cleanCue(text)
+function parseReviewResponse(text) {
+  const cleaned = cleanReview(text)
 
   try {
     const parsed = JSON.parse(cleaned)
-    return cleanCue(parsed.cue || '')
+    return cleanReview(parsed.review || '')
   } catch {
     return cleaned
   }
 }
 
-async function generateFrameCue({ frame, exercise, lastCue }) {
+async function generateVideoReview({ data, mimeType, exercise }) {
   const response = await genai.models.generateContent({
-    model: textModel,
+    model: reviewModel,
     contents: [
       {
         role: 'user',
         parts: [
           {
             inlineData: {
-              data: frame,
-              mimeType: 'image/jpeg'
+              data,
+              mimeType
             }
           },
           {
-            text: `Analyze this latest ${exercise} frame. Choose the best cue right now. Use one of the cue styles from the system instructions. Do not repeat this previous cue: ${lastCue || 'none'}.`
+            text: `Review this completed ${exercise} set. Coach opens the conversation first. Return a specific 2-3 sentence review in English. Mention at most two faults, or give praise if the set looks good.`
           }
         ]
       }
     ],
     config: {
-      systemInstruction: getExercisePrompt(exercise),
-      temperature: 0,
-      maxOutputTokens: 48,
+      systemInstruction: buildSquatPrompt(),
+      temperature: 0.2,
+      maxOutputTokens: 160,
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          cue: {
+          review: {
             type: Type.STRING
           }
         },
-        required: ['cue']
+        required: ['review']
       }
     }
   })
 
-  const cue = parseCueResponse(response.text || '')
+  const review = parseReviewResponse(response.text || '')
 
-  if (isUsableCue(cue)) return cue
+  if (review.length >= 20) return review
 
-  console.log(`Rejected weak fallback cue: ${cue || '[empty]'}`)
-  return lastCue === 'Chest up' ? 'Push your knees out' : 'Chest up'
+  console.log(`Rejected weak review: ${review || '[empty]'}`)
+  return 'Nice set. Keep your chest tall and push your knees out over your toes.'
 }
 
-async function openGeminiSession(browserSocket, exercise) {
-  return genai.live.connect({
-    model: liveModel,
-    config: {
-      systemInstruction: getExercisePrompt(exercise),
-      responseModalities: [responseModality],
-      tools: [{ googleSearch: {} }]
-    },
-    callbacks: {
-      onmessage: (message) => {
-        const outputText = message.serverContent?.outputTranscription?.text
-        const parts = message.serverContent?.modelTurn?.parts || []
-        const textParts = []
-
-        if (outputText?.trim()) {
-          console.log(`Gemini cue: ${outputText.trim()}`)
-          sendJson(browserSocket, {
-            type: 'coach_text',
-            text: outputText.trim()
-          })
-        }
-
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            sendJson(browserSocket, {
-              type: 'coach_audio',
-              data: part.inlineData.data,
-              mimeType: part.inlineData.mimeType
-            })
-          }
-
-          if (part.text) {
-            textParts.push(part.text)
-          }
-        }
-
-        if (textParts.length > 0) {
-          const text = textParts.join(' ').trim()
-          console.log(`Gemini cue: ${text}`)
-          sendJson(browserSocket, {
-            type: 'coach_text',
-            text
-          })
-        }
-
-        if (message.serverContent?.turnComplete) {
-          console.log('Gemini turn complete')
-        }
-      },
-      onerror: (error) => {
-        console.error('Gemini error:', error)
-        sendJson(browserSocket, {
-          type: 'error',
-          message: error?.message || 'Gemini session error'
-        })
-      },
-      onclose: () => {
-        console.log('Gemini session closed')
-      }
-    }
-  })
-}
-
-wss.on('connection', async (browserSocket, request) => {
+wss.on('connection', (browserSocket, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`)
   const exercise = url.searchParams.get('exercise') || 'squat'
-  let geminiSession = null
-  let coachingInterval = null
-  let videoFrames = 0
-  let audioChunks = 0
-  let latestFrame = null
-  let lastCue = ''
-  let fallbackBusy = false
 
   console.log(`Browser connected for ${exercise}`)
-
-  try {
-    geminiSession = await openGeminiSession(browserSocket, exercise)
-    console.log(`Gemini Live session opened successfully (${responseModality})`)
-    sendJson(browserSocket, { type: 'session_ready' })
-
-    coachingInterval = setInterval(async () => {
-      if (videoFrames === 0) {
-        console.log('Waiting for video frames from browser...')
-        return
-      }
-
-      console.log(
-        `Forwarded ${videoFrames} video frames and ${audioChunks} audio chunks`
-      )
-
-      geminiSession.sendClientContent({
-        turns:
-          'Analyze the latest camera view. Give exactly one short squat coaching cue now. Maximum 8 words.',
-        turnComplete: true
-      })
-
-      if (!latestFrame || fallbackBusy) return
-
-      fallbackBusy = true
-      try {
-        const cue = await generateFrameCue({
-          frame: latestFrame,
-          exercise,
-          lastCue
-        })
-
-        if (cue) {
-          lastCue = cue
-          console.log(`Fallback cue: ${cue}`)
-          sendJson(browserSocket, {
-            type: 'coach_text',
-            text: cue
-          })
-        } else {
-          console.log('Fallback cue was empty')
-        }
-      } catch (error) {
-        console.error('Fallback cue error:', error?.message || error)
-      } finally {
-        fallbackBusy = false
-      }
-    }, 5000)
-  } catch (error) {
-    console.error('Failed to open Gemini session:', error)
-    sendJson(browserSocket, {
-      type: 'error',
-      message: 'Failed to connect to StackDaddy. Check the API key.'
-    })
-    browserSocket.close()
-    return
-  }
+  sendJson(browserSocket, { type: 'session_ready' })
 
   browserSocket.on('message', async (rawData) => {
     try {
       const message = JSON.parse(rawData.toString())
 
-      if (message.type === 'video_frame') {
-        videoFrames += 1
-        latestFrame = message.data
-        geminiSession.sendRealtimeInput({
-          video: {
-            data: message.data,
-            mimeType: 'image/jpeg'
-          }
+      if (message.type === 'recording_complete') {
+        const mimeType = message.mimeType || 'video/webm'
+        const sizeMb = ((message.data?.length || 0) * 0.75) / 1024 / 1024
+
+        console.log(
+          `Recording received (${mimeType}, approx ${sizeMb.toFixed(2)} MB)`
+        )
+        sendJson(browserSocket, { type: 'review_started' })
+
+        const review = await generateVideoReview({
+          data: message.data,
+          mimeType,
+          exercise
+        })
+
+        console.log(`Set review: ${review}`)
+        sendJson(browserSocket, {
+          type: 'coach_text',
+          text: review
         })
       }
 
-      if (message.type === 'audio_chunk') {
-        audioChunks += 1
-        geminiSession.sendRealtimeInput({
-          audio: {
-            data: message.data,
-            mimeType: 'audio/pcm;rate=16000'
-          }
-        })
-      }
     } catch (error) {
-      console.error('Error forwarding browser data to Gemini:', error)
+      console.error('Error handling browser message:', error)
+      sendJson(browserSocket, {
+        type: 'error',
+        message: 'Failed to analyze set'
+      })
     }
   })
 
-  browserSocket.on('close', async () => {
+  browserSocket.on('close', () => {
     console.log('Browser disconnected')
-    clearInterval(coachingInterval)
-
-    if (geminiSession) {
-      try {
-        await geminiSession.close()
-      } catch (error) {
-        console.error('Error closing Gemini session:', error)
-      }
-    }
   })
 })

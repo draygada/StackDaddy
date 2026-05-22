@@ -18,21 +18,22 @@ npm run dev
 
 ## What Good Looks Like
 
-The server should print frame counts:
+Record one set, then tap Stop. The server should print the uploaded recording
+and then a set review:
 
 ```text
-Forwarded 20 video frames and 40 audio chunks
-Fallback cue: Chest up
+Recording received (video/webm, approx 2.40 MB)
+Set review: On that set your knees caved near the bottom. Push your knees out over your toes. Want to fix stance or depth next?
 ```
 
-The same cue should appear over the camera feed.
+The same review should appear over the camera feed.
 
 ## Demo Rounds
 
-- Knee cave: let knees collapse inward. Expected cue: "Push your knees out".
-- Chest forward: lean torso forward. Expected cue: "Chest up".
-- Shallow depth: stop high. Expected cue: "Go deeper".
-- Good form: clean squat. Expected cue: "Good depth" or "Nice rep".
+- Knee cave: let knees collapse inward, then stop. Expected review mentions knees and "Push your knees out".
+- Chest forward: lean torso forward, then stop. Expected review mentions chest and "Chest up".
+- Shallow depth: stop high, then stop. Expected review mentions depth or hips below parallel.
+- Good form: clean squat, then stop. Expected review gives positive feedback like "Good depth" or "Strong set".
 
 ## Grounding Check
 
@@ -47,8 +48,8 @@ inward. This verifies the Google Search tool is accepted by the SDK/server.
 
 ## Judge Talking Points
 
-- StackDaddy streams webcam frames and microphone chunks from the browser.
+- StackDaddy records one set in the browser and uploads the full video.
 - The backend bridges the browser to Gemini with the API key kept server-side.
-- Gemini analyzes squat form against a focused coaching knowledge base.
-- The demo prioritizes short, actionable cues instead of long explanations.
+- Gemini reviews the completed set video against a focused coaching knowledge base.
+- The demo prioritizes short, actionable post-set feedback instead of long explanations.
 - Google Search grounding is enabled for explanatory coaching questions.

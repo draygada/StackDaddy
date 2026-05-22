@@ -2,8 +2,8 @@
   position: absolute;
   z-index: 2;
   left: 50%;
-  bottom: clamp(64px, 10vh, 112px);
-  width: min(calc(100vw - 32px), 680px);
+  bottom: clamp(118px, 18vh, 172px);
+  width: min(calc(100vw - 32px), 760px);
   padding: 16px 24px;
   border: 1px solid oklch(0.88 0.012 230 / 0.2);
   border-radius: 8px;
@@ -28,8 +28,8 @@
 .cue-text {
   margin: 0;
   color: oklch(0.98 0.006 230);
-  font-size: clamp(20px, 4.5vw, 34px);
+  font-size: clamp(18px, 3vw, 26px);
   font-weight: 820;
   letter-spacing: 0;
-  line-height: 1.18;
+  line-height: 1.28;
 }

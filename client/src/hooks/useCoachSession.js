@@ -1,28 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080'
 
-function bytesToBase64(bytes) {
-  let binary = ''
-  const chunkSize = 0x8000
+function getRecorderOptions() {
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ]
 
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, i + chunkSize)
-    binary += String.fromCharCode(...chunk)
-  }
+  const mimeType = candidates.find((candidate) =>
+    MediaRecorder.isTypeSupported(candidate)
+  )
 
-  return btoa(binary)
-}
-
-function base64ToArrayBuffer(base64) {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-
-  return bytes.buffer
+  return mimeType
+    ? {
+        mimeType,
+        videoBitsPerSecond: 1_200_000,
+        audioBitsPerSecond: 64_000
+      }
+    : {}
 }
 
 export function useCoachSession(exercise) {
@@ -31,112 +28,85 @@ export function useCoachSession(exercise) {
   const [cueVisible, setCueVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
-  const audioContextRef = useRef(null)
+  const chunksRef = useRef([])
   const cueTimerRef = useRef(null)
-  const frameIntervalRef = useRef(null)
-  const mediaSourceRef = useRef(null)
-  const processorRef = useRef(null)
-  const silentGainRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const statusRef = useRef(status)
   const streamRef = useRef(null)
   const videoRef = useRef(null)
   const wsRef = useRef(null)
 
-  const showCue = useCallback((text) => {
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  const showCue = useCallback((text, duration = 10000) => {
     window.clearTimeout(cueTimerRef.current)
     setCurrentCue(text)
     setCueVisible(true)
     cueTimerRef.current = window.setTimeout(() => {
       setCueVisible(false)
-    }, 4000)
+    }, duration)
   }, [])
 
-  const playAudio = useCallback(async (base64Audio) => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext()
-      }
+  const sendRecording = useCallback((blob) => {
+    const reader = new FileReader()
 
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume()
-      }
-
-      const audioBuffer = await audioContextRef.current.decodeAudioData(
-        base64ToArrayBuffer(base64Audio)
-      )
-      const source = audioContextRef.current.createBufferSource()
-      source.buffer = audioBuffer
-      source.connect(audioContextRef.current.destination)
-      source.start()
-    } catch (error) {
-      console.error('Audio playback error:', error)
-    }
-  }, [])
-
-  const sendVideoFrame = useCallback(() => {
-    const video = videoRef.current
-    const ws = wsRef.current
-
-    if (!video || !ws || ws.readyState !== WebSocket.OPEN) return
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
-
-    const canvas = document.createElement('canvas')
-    canvas.width = 640
-    canvas.height = 480
-
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
-    ws.send(
-      JSON.stringify({
-        type: 'video_frame',
-        data: canvas.toDataURL('image/jpeg', 0.78).split(',')[1]
-      })
-    )
-  }, [])
-
-  const startAudioCapture = useCallback(async (stream) => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext({ sampleRate: 16000 })
-    }
-
-    const audioContext = audioContextRef.current
-
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume()
-    }
-
-    const source = audioContext.createMediaStreamSource(stream)
-    const processor = audioContext.createScriptProcessor(4096, 1, 1)
-    const silentGain = audioContext.createGain()
-
-    silentGain.gain.value = 0
-    processor.onaudioprocess = (event) => {
+    reader.onloadend = () => {
       const ws = wsRef.current
-      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      const result = reader.result
 
-      const inputData = event.inputBuffer.getChannelData(0)
-      const pcm16 = new Int16Array(inputData.length)
-
-      for (let i = 0; i < inputData.length; i += 1) {
-        const sample = Math.max(-1, Math.min(1, inputData[i]))
-        pcm16[i] = sample < 0 ? sample * 32768 : sample * 32767
+      if (!ws || ws.readyState !== WebSocket.OPEN || typeof result !== 'string') {
+        setStatus('error')
+        setErrorMessage('Could not upload the recording')
+        return
       }
 
       ws.send(
         JSON.stringify({
-          type: 'audio_chunk',
-          data: bytesToBase64(new Uint8Array(pcm16.buffer))
+          type: 'recording_complete',
+          data: result.split(',')[1],
+          mimeType: blob.type || 'video/webm'
         })
       )
     }
 
-    source.connect(processor)
-    processor.connect(silentGain)
-    silentGain.connect(audioContext.destination)
+    reader.readAsDataURL(blob)
+  }, [])
 
-    mediaSourceRef.current = source
-    processorRef.current = processor
-    silentGainRef.current = silentGain
+  const startRecording = useCallback(() => {
+    const stream = streamRef.current
+    if (!stream || statusRef.current !== 'ready') return
+
+    chunksRef.current = []
+
+    const recorder = new MediaRecorder(stream, getRecorderOptions())
+    mediaRecorderRef.current = recorder
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data)
+      }
+    }
+
+    recorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, {
+        type: recorder.mimeType || 'video/webm'
+      })
+
+      setStatus('analyzing')
+      showCue('Analyzing your set...', 3000)
+      sendRecording(blob)
+    }
+
+    recorder.start()
+    setStatus('recording')
+  }, [sendRecording, showCue])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop()
+    }
   }, [])
 
   useEffect(() => {
@@ -174,25 +144,21 @@ export function useCoachSession(exercise) {
         const ws = new WebSocket(url.toString())
         wsRef.current = ws
 
-        ws.onopen = () => {
-          console.log('WebSocket connected')
-        }
-
         ws.onmessage = async (event) => {
           const message = JSON.parse(event.data)
 
           if (message.type === 'session_ready') {
             setStatus('ready')
-            frameIntervalRef.current = window.setInterval(sendVideoFrame, 500)
-            await startAudioCapture(stream)
           }
 
-          if (message.type === 'coach_audio') {
-            await playAudio(message.data)
+          if (message.type === 'review_started') {
+            setStatus('analyzing')
+            showCue('Analyzing your set...', 3000)
           }
 
           if (message.type === 'coach_text') {
-            showCue(message.text)
+            setStatus('complete')
+            showCue(message.text, 12000)
           }
 
           if (message.type === 'error') {
@@ -226,21 +192,21 @@ export function useCoachSession(exercise) {
     return () => {
       mounted = false
       window.clearTimeout(cueTimerRef.current)
-      window.clearInterval(frameIntervalRef.current)
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
       wsRef.current?.close()
-      processorRef.current?.disconnect()
-      mediaSourceRef.current?.disconnect()
-      silentGainRef.current?.disconnect()
       streamRef.current?.getTracks().forEach((track) => track.stop())
-      audioContextRef.current?.close()
     }
-  }, [exercise, playAudio, sendVideoFrame, showCue, startAudioCapture])
+  }, [exercise, showCue])
 
   return {
     status,
     currentCue,
     cueVisible,
     errorMessage,
-    videoRef
+    videoRef,
+    startRecording,
+    stopRecording
   }
 }

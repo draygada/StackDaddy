@@ -1,10 +1,8 @@
 # StackDaddy Frontend
 
-React/Vite frontend for the StackDaddy real-time form coaching demo.
+React/Vite frontend for the StackDaddy post-set video review demo.
 
 ## Run locally
-
-Install Node.js first if `node -v` or `npm -v` fails.
 
 ```bash
 cd client
@@ -14,30 +12,37 @@ npm run dev
 
 Open http://localhost:5173.
 
-## WebSocket URL
+## WebSocket URL (`client/.env`)
 
-The local default is in `.env`:
+| Environment | `VITE_WS_URL` |
+|-------------|----------------|
+| Local dev | `ws://127.0.0.1:8080` |
+| Dev tunnel (optional) | `wss://….ngrok-free.app` |
+| **Judging / Cloud (required)** | `wss://….run.app` (Person 1's **Cloud Run** URL) |
 
-```bash
-VITE_WS_URL=ws://127.0.0.1:8080
-```
+Restart `npm run dev` after changing `.env`.
 
-When the backend is deployed, replace it with Person 1's secure WebSocket URL:
+## Message contract (record -> upload -> review)
 
-```bash
-VITE_WS_URL=wss://your-cloud-run-url
-```
+**Client → server**
 
-## Message Contract
+| type | When |
+|------|------|
+| `recording_complete` | User taps Stop, base64 WebM video upload |
 
-The frontend sends:
+**Server → client**
 
-- `video_frame`: base64 JPEG every 500ms.
-- `audio_chunk`: base64 PCM16 microphone audio chunks.
+| type | When |
+|------|------|
+| `session_ready` | Server connected, show Record |
+| `review_started` | Server received the video, show Analyzing |
+| `coach_text` | Show overlay text |
+| `error` | Show error state |
 
-The frontend expects:
+See [DanielTasks.md](../DanielTasks.md) for full hook implementation.
 
-- `session_ready`: starts frame and audio streaming.
-- `coach_text`: displays `text` over the camera feed.
-- `coach_audio`: plays base64 audio in `data`.
-- `error`: shows an error state.
+## Hackathon note
+
+Judges require **Google Cloud** hosting. The frontend may run on `localhost` during
+the live demo if it connects to a **Cloud Run** backend — show the `*.run.app` URL
+in your submission video. Optional: deploy this app to Firebase Hosting (same GCP project).

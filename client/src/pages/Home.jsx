@@ -4,7 +4,7 @@ const exercises = [
   {
     id: 'squat',
     label: 'Air Squats',
-    eyebrow: 'Live form coaching',
+    eyebrow: 'Record a set, get feedback',
     enabled: true
   },
   {
@@ -22,8 +22,8 @@ export default function Home({ onStart }) {
         <p className="home-kicker">AI Form Coach</p>
         <h1>StackDaddy</h1>
         <p>
-          Real-time bodyweight coaching that watches your form, listens for
-          context, and gives clear cues while you train.
+          Record one set of squats, upload it for review, then get a clear
+          coaching opening from Gemini.
         </p>
       </div>
 
