@@ -3,6 +3,20 @@
 
 ---
 
+## Hackathon requirements (Build With AI)
+
+| Requirement | How we meet it |
+|-------------|----------------|
+| **Live Agents** (audio + vision) | Camera preview + recorded set video; Coach **audio** + **text overlay**; mic follow-up |
+| **Google Cloud hosting** | Frontend talks to Person 1's backend on **Cloud Run** (`wss://….run.app`) for judging |
+| **Working demo video** | Show real app: Record → Stop → Analyzing → Coach speaks → ask a question |
+| **Not prohibited** | We are not a basic PDF chatbot or generic education chatbot — vision + voice coaching |
+
+**Dev:** `ws://localhost:8080` or Person 1's **ngrok** URL while building.  
+**Judging / submission:** Person 1's **Cloud Run** `wss://` URL (mandatory).
+
+---
+
 ## Team pivot (read first)
 
 **We are NOT streaming live video frames during the set.**
@@ -611,16 +625,40 @@ export default function CueOverlay({ text, visible }) {
 
 ### Step 1 — Create `.env` file in client folder
 
+**Local dev:**
 ```
 VITE_WS_URL=ws://localhost:8080
 ```
 
-When Person 1 exposes ngrok, update to:
+**Dev with Person 1's ngrok (optional):**
 ```
 VITE_WS_URL=wss://abc123.ngrok-free.app
 ```
 
-Note: `wss://` not `ws://` for ngrok.
+**Judging / submission (mandatory — Person 1 Cloud Run):**
+```
+VITE_WS_URL=wss://coach-server-xxxxxxxx-uc.a.run.app
+```
+
+Use `wss://` for ngrok and Cloud Run (secure WebSocket).
+Rebuild or restart `npm run dev` after changing `.env`.
+
+### Step 1b — Optional: host frontend on Google Cloud (bonus polish)
+
+Static frontend can live on **Firebase Hosting** (same Google Cloud project):
+
+```bash
+cd client
+npm run build
+npm install -g firebase-tools
+firebase login
+firebase init hosting
+# Public directory: dist
+# Single-page app: yes
+firebase deploy
+```
+
+Judging only **requires** the **backend** on Cloud Run; Firebase is optional for a public demo URL.
 
 ### Step 2 — Update vite.config.js
 
@@ -652,7 +690,16 @@ Open http://localhost:5173 — you should see the home screen.
 4. Coach audio + text overlay (opening feedback or praise)
 5. Ask out loud: "Why do my knees cave?" — hear follow-up
 
-### Step 5 — Build for Production (optional)
+### Step 5 — Final demo on Cloud Run
+
+Before judges or recording the submission video:
+
+1. Person 1 gives you the **Cloud Run** `wss://` URL
+2. Update `client/.env` and restart dev server
+3. Run full flow: Record → Stop → Coach opening → follow-up question
+4. Confirm in DevTools that WebSocket connects to `*.run.app`
+
+### Step 6 — Build for production (optional)
 
 ```bash
 npm run build
@@ -705,5 +752,7 @@ npm run build
 - [ ] Coach opening text shows on overlay
 - [ ] Follow-up mic sends `audio_chunk` after opening
 - [ ] End Session cleans up camera and WS
-- [ ] `VITE_WS_URL` updated to Person 1's ngrok `wss://` URL
-- [ ] Demo flow tested end to end with Person 2's prompt
+- [ ] `VITE_WS_URL` updated to Person 1's **Cloud Run** `wss://` URL for judging
+- [ ] Demo flow tested end to end on Cloud Run (not only localhost)
+- [ ] Submission video captured showing real UI + Coach audio
+- [ ] Repo README lists all team members (portal requirement)

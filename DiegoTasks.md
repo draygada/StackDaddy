@@ -3,6 +3,24 @@
 
 ---
 
+## Hackathon requirements (Build With AI — Live Agents)
+
+Your project must satisfy **mandatory** rules for judging:
+
+| Requirement | How we meet it |
+|-------------|----------------|
+| **Category: Live Agents** (audio + vision) | Camera records the set; Gemini **sees** video; Coach **speaks** (audio) + **text overlay**; athlete can **talk back** after the opening |
+| **Google GenAI SDK** | Person 1 uses `@google/genai` in `server/index.js` (not raw REST only) |
+| **Hosted on Google Cloud** | Person 1 deploys backend to **Cloud Run** — demo video must show the `*.run.app` URL |
+| **Grounding / robustness** (30% technical) | `tools: [{ google_search: {} }]` + post-set prompt (“only what you see”) |
+| **Submission** | Repo README lists **all team members**; submit GitHub URL on the portal |
+
+**Pitch framing:** We optimized for reliable **post-set video review + live voice conversation** because mid-rep Live latency was unreliable in the room — still a vision + voice agent, not a text-only chatbot.
+
+Portal: [goo.gle/CHM-hack-26](https://goo.gle/CHM-hack-26) · Account setup: [goo.gle/hackathon-account](https://goo.gle/hackathon-account)
+
+---
+
 ## Team pivot (read first)
 
 **We are NOT doing real-time mid-rep coaching.** Live video streaming was too slow
@@ -192,10 +210,13 @@ Not working: generic filler — Person 1 checks `tools` in session config.
 
 ### Talking points for judges
 
-- "Athlete records a set; we send the video to Gemini for analysis"
-- "Coach opens the conversation with feedback or praise — no live latency during reps"
-- "Google Search Grounding backs up why questions in the follow-up"
-- "System prompt is a structured coaching knowledge base for squat review"
+- **Category:** Live Agents — multimodal coach that **sees** your set and **speaks** to you
+- **Problem / solution:** Real-time form coaching without a human trainer
+- **Tech:** Google **GenAI SDK**, Gemini **Live** (audio) + **video** input on **Google Cloud Run**
+- **UX:** Not a text box — record a set → Coach **opens with voice** + on-screen text → athlete asks follow-ups out loud
+- **Grounding:** Google Search backs up “why” questions (reduces hallucinations)
+- **Cloud proof:** Show `https://your-service-….run.app` in the demo (health check + working app)
+- **Honest design note:** Post-set analysis for accuracy; conversation after is live and interruptible
 
 ---
 
@@ -258,14 +279,25 @@ You are reviewing a completed set. Open the conversation in English.
 
 ---
 
+## Submission support (Person 2)
+
+Help the team with **demo video** and **README** (required on portal):
+
+- [ ] Demo script rehearsed on **Cloud Run** URL (not only localhost)
+- [ ] Video shows **working software** (record → stop → Coach speaks → follow-up question)
+- [ ] Video or slides mention **GenAI SDK** + **Gemini** + **Cloud Run** (architecture screenshot)
+- [ ] Confirm repo **README.md** lists every team member name
+
+---
+
 ## Your Checklist
 
 - [ ] Post-set prompt pasted and tested (bad set opening)
 - [ ] Good-set opening tested (praise)
 - [ ] Openings are English, 2–3 sentences, specific
 - [ ] Knowledge base covers major squat faults
-- [ ] Final prompt sent to Person 1 for `squat.js`
+- [ ] Final prompt + **model name** sent to Person 1 for `squat.js` and `LIVE_MODEL`
 - [ ] Google Search Grounding verified on a why question
-- [ ] Bad-set demo flow rehearsed with Person 3
+- [ ] Bad-set demo flow rehearsed with Person 3 on **Cloud Run** backend
 - [ ] Good-set backup demo rehearsed
-- [ ] Talking points prepared for judges
+- [ ] Judge talking points prepared (Live Agents + Cloud + SDK + grounding)

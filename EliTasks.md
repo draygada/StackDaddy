@@ -3,6 +3,21 @@
 
 ---
 
+## Hackathon requirements (mandatory)
+
+| Requirement | Your responsibility |
+|-------------|---------------------|
+| **Google GenAI SDK** | Use `@google/genai` in `server/index.js` (already in this guide) |
+| **Hosted on Google Cloud** | Deploy backend to **Cloud Run** — judges need proof of Cloud deployment |
+| **Hackathon account / credits** | Temp Google account from organizers; import project; API key to team |
+| **API key security** | `.env` only — never commit to GitHub |
+
+**Dev vs demo:** Use **ngrok** (Phase 4) for fast local testing. Use **Cloud Run** (Phase 5) for judging and submission video — **both are required**.
+
+Portal: [goo.gle/CHM-hack-26](https://goo.gle/CHM-hack-26) · Account: [goo.gle/hackathon-account](https://goo.gle/hackathon-account)
+
+---
+
 ## Team pivot (read first)
 
 **We are NOT streaming video frames during the set.** That was too slow for real-time cues.
@@ -13,16 +28,17 @@
 3. Server sends the video to Gemini → Coach **opens** with feedback or praise (audio + text)
 4. Browser sends `audio_chunk` for **follow-up** conversation
 
-You own API key, WebSocket server, Gemini config, ngrok, and `squat.js`.
+You own API key, WebSocket server, Gemini config, **Cloud Run deploy**, ngrok (dev), and `squat.js`.
 
 ---
 
 ## Your Role
 You are responsible for:
 - Setting up the temporary Google account and getting the API key
-- Building the WebSocket server that connects the browser to Gemini
+- Building the WebSocket server that connects the browser to Gemini via **Google GenAI SDK**
 - Handling **recorded video** after each set (not continuous frames)
-- Exposing the server to the internet so the demo works
+- **Deploying the server to Google Cloud Run** (mandatory for hackathon judging)
+- Using **ngrok** only for local/dev testing before Cloud Run is live
 - Making sure the API key never gets pushed to GitHub
 
 Everyone on the team is blocked until you have the API key.
@@ -365,10 +381,12 @@ Tell Person 2 and Person 3 the server is running.
 
 ---
 
-## Phase 4 — Expose Server to Internet with ngrok (Hour 4)
+## Phase 4 — Dev testing with ngrok (Hour 3–4)
 
-Cloud Run is not needed. Use ngrok to expose your local server so the
-demo works from any browser in the room.
+**ngrok is for development only.** The hackathon requires **Google Cloud** hosting
+for submission — complete **Phase 5 (Cloud Run)** before judges or the demo video.
+
+Use ngrok to expose your **local** server so Person 3 can test before Cloud Run is ready.
 
 ### Step 1 — Install ngrok
 
@@ -422,18 +440,88 @@ Should show: `Coach server running`
 
 ---
 
-## Phase 5 — Before You Leave (End of Day)
+## Phase 5 — Deploy to Google Cloud Run (Hour 4–5) — MANDATORY
+
+Judging requires **Google Cloud deployment** and visual proof in the demo video.
+Deploy the **server** to Cloud Run (Person 3 can keep running the Vite frontend locally
+pointing at Cloud Run, or deploy frontend to Firebase Hosting later).
+
+### Step 1 — Create `server/Dockerfile`
+
+```dockerfile
+FROM node:20-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production
+COPY . .
+EXPOSE 8080
+CMD ["node", "index.js"]
+```
+
+### Step 2 — Enable Cloud Run API (once per project)
+
+```bash
+gcloud config set project YOUR_HACKATHON_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com
+```
+
+### Step 3 — Deploy from the server folder
+
+Use the hackathon Google Cloud project (from AI Studio import / organizers):
+
+```bash
+cd server
+gcloud run deploy coach-server \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars GEMINI_API_KEY=your_key_here \
+  --port 8080
+```
+
+Wait 3–5 minutes. You will get a URL like:
+`https://coach-server-xxxxxxxx-uc.a.run.app`
+
+**Screenshot this URL** for the submission video (judges: “Proof of Cloud deployment”).
+
+### Step 4 — Give Person 3 the production WebSocket URL
+
+```
+wss://coach-server-xxxxxxxx-uc.a.run.app
+```
+
+Tell Person 3 to set in `client/.env`:
+```
+VITE_WS_URL=wss://coach-server-xxxxxxxx-uc.a.run.app
+```
+
+### Step 5 — Verify Cloud deployment
+
+```bash
+curl https://coach-server-xxxxxxxx-uc.a.run.app
+# Should return: Coach server running
+```
+
+Run one full test: Record → Stop → Coach opening, using the **Cloud Run** URL.
+
+### Step 6 — Document in repo README
+
+Add to the root `README.md`:
+- Cloud Run service URL
+- “Backend uses Google GenAI SDK (`@google/genai`) on Google Cloud Run”
+
+---
+
+## Phase 6 — Before You Leave (End of Day)
 
 ### IMPORTANT — Do This Before 9pm
 
-**Push your code to your personal GitHub:**
+**Push code to the team GitHub** (e.g. `https://github.com/draygada/StackDaddy`):
+
 ```bash
-# From the server folder
-git init
 git add .
-git commit -m "hackathon: coach server"
-git remote add origin https://github.com/YOUR_USERNAME/coach-server
-git push -u origin main
+git commit -m "hackathon: coach server on Cloud Run"
+git push origin main
 ```
 
 Double check `.env` is NOT in the push:
@@ -442,8 +530,8 @@ git status
 # .env should not appear in the list
 ```
 
-The temporary account is deleted tomorrow. Your code is not backed up
-anywhere else. Do not forget this.
+The temporary hackathon Google account may be deleted tomorrow. Cloud Run can keep
+running until credits expire — confirm billing is on the hackathon project.
 
 ---
 
@@ -479,8 +567,12 @@ anywhere else. Do not forget this.
 
 **ngrok URL keeps changing:**
 - Free ngrok gives a new URL every restart
-- Keep ngrok running the whole day — don't restart it
-- If it restarts, give Person 3 the new URL immediately
+- For judging, use **Cloud Run URL** — do not rely on ngrok for finals
+
+**Cloud Run deploy fails:**
+- Confirm `gcloud` project matches hackathon project
+- Confirm billing / credits from [goo.gle/CHM-hack-26](https://goo.gle/CHM-hack-26)
+- Check Cloud Run logs: `gcloud run services logs read coach-server --region us-central1`
 
 ---
 
@@ -492,13 +584,16 @@ anywhere else. Do not forget this.
 - [ ] API key verified with curl test
 - [ ] .gitignore created with .env listed BEFORE first commit
 - [ ] .env file created with API key
-- [ ] Server folder set up with npm packages installed
+- [ ] Server uses **@google/genai** (GenAI SDK) — mandatory
 - [ ] Post-set `squat.js` and updated `index.js` created
 - [ ] `recording_complete` handler working (video + SET_COMPLETE trigger)
+- [ ] `tools: [{ google_search: {} }]` enabled for grounding
 - [ ] Server running locally on port 8080
 - [ ] Gemini Live session opening successfully
-- [ ] ngrok installed and running
-- [ ] ngrok WebSocket URL sent to Person 3
-- [ ] Person 3 confirmed record → stop → Coach opening works end to end
-- [ ] Code pushed to personal GitHub before 9pm
-- [ ] .env confirmed NOT in the GitHub push
+- [ ] ngrok used for dev testing (optional but helpful)
+- [ ] **Cloud Run deployed** — `*.run.app` URL documented
+- [ ] Cloud Run health check works (`curl` → `Coach server running`)
+- [ ] Person 3 confirmed record → stop → Coach opening on **Cloud Run** URL
+- [ ] Cloud Run URL shared for **demo video** / judging
+- [ ] Team repo pushed; `.env` NOT in GitHub
+- [ ] Root README lists team members + Cloud Run URL
