@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { GoogleGenAI, Type } from '@google/genai'
+import { GoogleGenAI, Modality } from '@google/genai'
 import { WebSocketServer } from 'ws'
 import { buildSquatPrompt } from './prompts/squat.js'
 
@@ -11,6 +11,7 @@ const port = process.env.PORT || 8080
 const host = process.env.HOST || '127.0.0.1'
 const apiKey = process.env.GEMINI_API_KEY
 const reviewModel = process.env.GEMINI_REVIEW_MODEL || 'gemini-2.5-flash'
+const liveModel = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview'
 
 if (!apiKey || apiKey === 'PASTE_THE_KEY_HERE' || apiKey === 'your_key_here') {
   console.error('Missing GEMINI_API_KEY. Add the real key to server/.env before starting.')
@@ -75,74 +76,107 @@ function sendJson(socket, payload) {
   }
 }
 
-function cleanReview(text) {
+function cleanText(text) {
   return text
     .replace(/^["'\s]+|["'\s]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-function parseReviewResponse(text) {
-  const cleaned = cleanReview(text)
+function forwardLiveMessage(browserSocket, message, transcript) {
+  const parts = message.serverContent?.modelTurn?.parts || []
 
-  try {
-    const parsed = JSON.parse(cleaned)
-    return cleanReview(parsed.review || '')
-  } catch {
-    return cleaned
+  for (const part of parts) {
+    if (part.inlineData?.data) {
+      sendJson(browserSocket, {
+        type: 'coach_audio',
+        data: part.inlineData.data,
+        mimeType: part.inlineData.mimeType || 'audio/pcm;rate=24000'
+      })
+    }
+
+    if (part.text) {
+      transcript.text += part.text
+    }
+  }
+
+  const outputText = message.serverContent?.outputTranscription?.text
+  if (outputText) {
+    transcript.text += outputText
+  }
+
+  if (message.text) {
+    transcript.text += message.text
+  }
+
+  if (
+    transcript.text &&
+    (message.serverContent?.generationComplete || message.serverContent?.turnComplete)
+  ) {
+    const text = cleanText(transcript.text)
+    transcript.text = ''
+
+    if (text) {
+      sendJson(browserSocket, {
+        type: 'coach_text',
+        text
+      })
+    }
   }
 }
 
-async function generateVideoReview({ data, mimeType, exercise }) {
-  const response = await genai.models.generateContent({
-    model: reviewModel,
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          {
-            inlineData: {
-              data,
-              mimeType
-            }
-          },
-          {
-            text: `Review this completed ${exercise} set. Coach opens the conversation first. Return a specific 2-3 sentence review in English. Mention at most two faults, or give praise if the set looks good.`
-          }
-        ]
-      }
-    ],
+async function openLiveSession(browserSocket) {
+  const transcript = { text: '' }
+
+  return genai.live.connect({
+    model: liveModel,
     config: {
       systemInstruction: buildSquatPrompt(),
+      responseModalities: [Modality.AUDIO],
+      outputAudioTranscription: {},
       temperature: 0.2,
-      maxOutputTokens: 160,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          review: {
-            type: Type.STRING
-          }
-        },
-        required: ['review']
+      maxOutputTokens: 180,
+      tools: [{ googleSearch: {} }]
+    },
+    callbacks: {
+      onopen: () => {
+        console.log(`Gemini Live session opened (${liveModel})`)
+      },
+      onmessage: (message) => {
+        forwardLiveMessage(browserSocket, message, transcript)
+      },
+      onerror: (error) => {
+        console.error('Gemini Live error:', error)
+        sendJson(browserSocket, {
+          type: 'error',
+          message: error?.message || 'Gemini Live error'
+        })
+      },
+      onclose: () => {
+        console.log('Gemini Live session closed')
       }
     }
   })
-
-  const review = parseReviewResponse(response.text || '')
-
-  if (review.length >= 20) return review
-
-  console.log(`Rejected weak review: ${review || '[empty]'}`)
-  return 'Nice set. Keep your chest tall and push your knees out over your toes.'
 }
 
-wss.on('connection', (browserSocket, request) => {
+wss.on('connection', async (browserSocket, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`)
   const exercise = url.searchParams.get('exercise') || 'squat'
+  let geminiSession = null
 
   console.log(`Browser connected for ${exercise}`)
-  sendJson(browserSocket, { type: 'session_ready' })
+
+  try {
+    geminiSession = await openLiveSession(browserSocket)
+    sendJson(browserSocket, { type: 'session_ready' })
+  } catch (error) {
+    console.error('Failed to open Gemini Live session:', error)
+    sendJson(browserSocket, {
+      type: 'error',
+      message: 'Failed to connect to Coach. Check the API key and Live model.'
+    })
+    return
+  }
 
   browserSocket.on('message', async (rawData) => {
     try {
@@ -157,16 +191,33 @@ wss.on('connection', (browserSocket, request) => {
         )
         sendJson(browserSocket, { type: 'review_started' })
 
-        const review = await generateVideoReview({
-          data: message.data,
-          mimeType,
-          exercise
+        geminiSession.sendClientContent({
+          turns: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    data: message.data,
+                    mimeType
+                  }
+                },
+                {
+                  text: `SET_COMPLETE: The athlete finished one ${exercise} set. Review the recorded video now. Speak first in English only. Give a specific 2-3 sentence opening, with at most two faults or genuine praise.`
+                }
+              ]
+            }
+          ],
+          turnComplete: true
         })
+      }
 
-        console.log(`Set review: ${review}`)
-        sendJson(browserSocket, {
-          type: 'coach_text',
-          text: review
+      if (message.type === 'audio_chunk') {
+        geminiSession.sendRealtimeInput({
+          audio: {
+            data: message.data,
+            mimeType: 'audio/pcm;rate=16000'
+          }
         })
       }
 
@@ -181,5 +232,6 @@ wss.on('connection', (browserSocket, request) => {
 
   browserSocket.on('close', () => {
     console.log('Browser disconnected')
+    geminiSession?.close()
   })
 })

@@ -11,8 +11,8 @@ const statusLabels = {
   connecting: 'Connecting to Coach',
   ready: 'Ready, tap Record',
   recording: 'Recording your set',
-  analyzing: 'Analyzing your set',
-  complete: 'Review complete',
+  analyzing: 'Coach is reviewing your set',
+  conversing: 'Ask Coach anything out loud',
   error: 'Connection error'
 }
 
@@ -73,11 +73,14 @@ export default function Session({ exercise, onEnd }) {
         )}
 
         {status === 'analyzing' && (
-          <p className="session-hint">Uploading your set for review</p>
+          <div className="analyzing-indicator" role="status">
+            <span className="spinner" aria-hidden="true" />
+            <span>Coach is watching your set...</span>
+          </div>
         )}
 
-        {status === 'complete' && (
-          <p className="session-hint">End this session or record again</p>
+        {status === 'conversing' && (
+          <p className="session-hint">Ask Coach anything out loud</p>
         )}
       </div>
 

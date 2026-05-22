@@ -29,6 +29,7 @@ Restart `npm run dev` after changing `.env`.
 | type | When |
 |------|------|
 | `recording_complete` | User taps Stop, base64 WebM video upload |
+| `audio_chunk` | Follow-up mic audio after the first Coach response |
 
 **Server → client**
 
@@ -36,6 +37,7 @@ Restart `npm run dev` after changing `.env`.
 |------|------|
 | `session_ready` | Server connected, show Record |
 | `review_started` | Server received the video, show Analyzing |
+| `coach_audio` | Play Coach speech through the speakers |
 | `coach_text` | Show overlay text |
 | `error` | Show error state |
 
