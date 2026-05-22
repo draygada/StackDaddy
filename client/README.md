@@ -19,7 +19,7 @@ Open http://localhost:5173.
 The local default is in `.env`:
 
 ```bash
-VITE_WS_URL=ws://localhost:8080
+VITE_WS_URL=ws://127.0.0.1:8080
 ```
 
 When the backend is deployed, replace it with Person 1's secure WebSocket URL:
