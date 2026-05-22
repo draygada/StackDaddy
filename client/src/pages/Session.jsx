@@ -1,4 +1,5 @@
 import CueOverlay from '../components/CueOverlay'
+import ReviewPage from './ReviewPage'
 import { useCoachSession } from '../hooks/useCoachSession'
 import './Session.css'
 
@@ -22,10 +23,26 @@ export default function Session({ exercise, onEnd }) {
     currentCue,
     cueVisible,
     errorMessage,
+    reviewFaults,
+    reviewVideoUrl,
+    conversationMessages,
     videoRef,
     startRecording,
-    stopRecording
+    stopRecording,
+    sendNextRep
   } = useCoachSession(exercise)
+
+  if (status === 'reviewing') {
+    return (
+      <ReviewPage
+        faults={reviewFaults || []}
+        videoUrl={reviewVideoUrl}
+        conversationMessages={conversationMessages}
+        sendNextRep={sendNextRep}
+        onEnd={onEnd}
+      />
+    )
+  }
 
   return (
     <section className="session">
@@ -80,7 +97,9 @@ export default function Session({ exercise, onEnd }) {
         )}
 
         {status === 'conversing' && (
-          <p className="session-hint">Ask Coach anything out loud</p>
+          <p className="session-hint">
+            Tap a bad rep to replay it, or ask Coach anything out loud
+          </p>
         )}
       </div>
 

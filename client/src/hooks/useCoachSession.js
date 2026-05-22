@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080'
+const MAX_RECORDING_MS = 15_000
 
 function bytesToBase64(bytes) {
   let binary = ''
@@ -25,14 +26,34 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer
 }
 
+const COACH_PCM_SAMPLE_RATE = 24000
+
 function getPcmSampleRate(mimeType = '') {
   const match = mimeType.match(/rate=(\d+)/)
-  return match ? Number(match[1]) : 24000
+  return match ? Number(match[1]) : COACH_PCM_SAMPLE_RATE
+}
+
+function isPcmMimeType(mimeType = '') {
+  const lower = mimeType.toLowerCase()
+  return (
+    lower.includes('pcm') ||
+    lower.includes('l16') ||
+    lower.startsWith('audio/raw')
+  )
+}
+
+function normalizeVideoMimeType(mimeType = '') {
+  const base = mimeType.split(';')[0].trim().toLowerCase()
+  if (base === 'video/webm' || base === 'video/mp4') {
+    return base
+  }
+  return 'video/webm'
 }
 
 function getRecorderOptions() {
   const candidates = [
-    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8',
+    'video/webm;codecs=vp9',
     'video/webm;codecs=vp8,opus',
     'video/webm'
   ]
@@ -41,13 +62,26 @@ function getRecorderOptions() {
     MediaRecorder.isTypeSupported(candidate)
   )
 
+  const videoOnly = mimeType && !mimeType.includes('opus')
+
   return mimeType
     ? {
         mimeType,
-        videoBitsPerSecond: 1_200_000,
-        audioBitsPerSecond: 64_000
+        videoBitsPerSecond: 400_000,
+        ...(videoOnly ? {} : { audioBitsPerSecond: 32_000 })
       }
     : {}
+}
+
+function getRecordingStream(stream) {
+  const videoOnly = new MediaStream(stream.getVideoTracks())
+  return videoOnly.getVideoTracks().length > 0 ? videoOnly : stream
+}
+
+let msgIdCounter = 0
+function nextMsgId() {
+  msgIdCounter += 1
+  return msgIdCounter
 }
 
 export function useCoachSession(exercise) {
@@ -55,12 +89,19 @@ export function useCoachSession(exercise) {
   const [currentCue, setCurrentCue] = useState('')
   const [cueVisible, setCueVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [reviewFaults, setReviewFaults] = useState(null)
+  const [reviewVideoUrl, setReviewVideoUrl] = useState(null)
+  const [conversationMessages, setConversationMessages] = useState([])
 
-  const audioContextRef = useRef(null)
+  const captureContextRef = useRef(null)
+  const playbackContextRef = useRef(null)
+  const playbackCursorRef = useRef(0)
   const chunksRef = useRef([])
+  const recordingUrlRef = useRef(null)
   const cueTimerRef = useRef(null)
   const followUpStartedRef = useRef(false)
   const mediaRecorderRef = useRef(null)
+  const recordingTimerRef = useRef(null)
   const mediaSourceRef = useRef(null)
   const processorRef = useRef(null)
   const silentGainRef = useRef(null)
@@ -82,54 +123,79 @@ export function useCoachSession(exercise) {
     }, duration)
   }, [])
 
-  const playAudio = useCallback(async (base64Audio, mimeType = '') => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext()
-      }
-
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume()
-      }
-
-      let audioBuffer
-      const arrayBuffer = base64ToArrayBuffer(base64Audio)
-
-      if (mimeType.includes('pcm')) {
-        const pcm16 = new Int16Array(arrayBuffer)
-        audioBuffer = audioContextRef.current.createBuffer(
-          1,
-          pcm16.length,
-          getPcmSampleRate(mimeType)
-        )
-
-        const channel = audioBuffer.getChannelData(0)
-        for (let i = 0; i < pcm16.length; i += 1) {
-          channel[i] = pcm16[i] / 32768
-        }
-      } else {
-        audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer)
-      }
-
-      const source = audioContextRef.current.createBufferSource()
-      source.buffer = audioBuffer
-      source.connect(audioContextRef.current.destination)
-      source.start()
-      setStatus('conversing')
-    } catch (error) {
-      console.error('Audio playback error:', error)
-    }
+  const addMessage = useCallback((role, text) => {
+    if (!text) return
+    setConversationMessages((prev) => [
+      ...prev,
+      { id: nextMsgId(), role, text }
+    ])
   }, [])
+
+  const resetCoachPlayback = useCallback(() => {
+    const ctx = playbackContextRef.current
+    playbackCursorRef.current = ctx ? ctx.currentTime : 0
+  }, [])
+
+  const getPlaybackContext = useCallback(async () => {
+    if (!playbackContextRef.current) {
+      // Default device rate; each buffer uses the sample rate from Gemini's mimeType.
+      playbackContextRef.current = new AudioContext()
+    }
+
+    if (playbackContextRef.current.state === 'suspended') {
+      await playbackContextRef.current.resume()
+    }
+
+    return playbackContextRef.current
+  }, [])
+
+  const queueCoachAudio = useCallback(
+    async (base64Audio, mimeType = '') => {
+      try {
+        const ctx = await getPlaybackContext()
+        const sampleRate = getPcmSampleRate(mimeType)
+        const arrayBuffer = base64ToArrayBuffer(base64Audio)
+        let audioBuffer
+
+        if (isPcmMimeType(mimeType)) {
+          const pcm16 = new Int16Array(arrayBuffer)
+          if (pcm16.length === 0) return
+
+          audioBuffer = ctx.createBuffer(1, pcm16.length, sampleRate)
+          const channel = audioBuffer.getChannelData(0)
+          for (let i = 0; i < pcm16.length; i += 1) {
+            channel[i] = pcm16[i] / 32768
+          }
+        } else {
+          audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0))
+        }
+
+        const now = ctx.currentTime
+        if (playbackCursorRef.current < now) {
+          playbackCursorRef.current = now
+        }
+
+        const source = ctx.createBufferSource()
+        source.buffer = audioBuffer
+        source.connect(ctx.destination)
+        source.start(playbackCursorRef.current)
+        playbackCursorRef.current += audioBuffer.duration
+      } catch (error) {
+        console.error('Audio playback error:', error, mimeType)
+      }
+    },
+    [getPlaybackContext]
+  )
 
   const startFollowUpMic = useCallback(async (stream) => {
     if (!stream || followUpStartedRef.current) return
     followUpStartedRef.current = true
 
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext({ sampleRate: 16000 })
+    if (!captureContextRef.current) {
+      captureContextRef.current = new AudioContext({ sampleRate: 16000 })
     }
 
-    const audioContext = audioContextRef.current
+    const audioContext = captureContextRef.current
 
     if (audioContext.state === 'suspended') {
       await audioContext.resume()
@@ -143,7 +209,9 @@ export function useCoachSession(exercise) {
     processor.onaudioprocess = (event) => {
       const ws = wsRef.current
       if (!ws || ws.readyState !== WebSocket.OPEN) return
-      if (statusRef.current !== 'conversing') return
+
+      const s = statusRef.current
+      if (s !== 'conversing' && s !== 'reviewing') return
 
       const inputData = event.inputBuffer.getChannelData(0)
       const pcm16 = new Int16Array(inputData.length)
@@ -170,30 +238,61 @@ export function useCoachSession(exercise) {
     silentGainRef.current = silentGain
   }, [])
 
-  const sendRecording = useCallback((blob) => {
-    const reader = new FileReader()
+  const revokeRecordingUrl = useCallback(() => {
+    if (recordingUrlRef.current) {
+      URL.revokeObjectURL(recordingUrlRef.current)
+      recordingUrlRef.current = null
+    }
+  }, [])
 
-    reader.onloadend = () => {
-      const ws = wsRef.current
-      const result = reader.result
+  const sendNextRep = useCallback((fault) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(
+      JSON.stringify({
+        type: 'next_rep',
+        rep: fault.rep,
+        faultType: fault.fault_type
+      })
+    )
+  }, [])
 
-      if (!ws || ws.readyState !== WebSocket.OPEN || typeof result !== 'string') {
-        setStatus('error')
-        setErrorMessage('Could not upload the recording')
-        return
+  const sendRecording = useCallback(
+    (blob) => {
+      revokeRecordingUrl()
+      const url = URL.createObjectURL(blob)
+      recordingUrlRef.current = url
+      setReviewVideoUrl(url)
+
+      const reader = new FileReader()
+
+      reader.onloadend = () => {
+        const ws = wsRef.current
+        const result = reader.result
+
+        if (
+          !ws ||
+          ws.readyState !== WebSocket.OPEN ||
+          typeof result !== 'string'
+        ) {
+          setStatus('error')
+          setErrorMessage('Could not upload the recording')
+          return
+        }
+
+        ws.send(
+          JSON.stringify({
+            type: 'recording_complete',
+            data: result.split(',')[1],
+            mimeType: normalizeVideoMimeType(blob.type)
+          })
+        )
       }
 
-      ws.send(
-        JSON.stringify({
-          type: 'recording_complete',
-          data: result.split(',')[1],
-          mimeType: blob.type || 'video/webm'
-        })
-      )
-    }
-
-    reader.readAsDataURL(blob)
-  }, [])
+      reader.readAsDataURL(blob)
+    },
+    [revokeRecordingUrl]
+  )
 
   const startRecording = useCallback(() => {
     const stream = streamRef.current
@@ -201,7 +300,10 @@ export function useCoachSession(exercise) {
 
     chunksRef.current = []
 
-    const recorder = new MediaRecorder(stream, getRecorderOptions())
+    const recorder = new MediaRecorder(
+      getRecordingStream(stream),
+      getRecorderOptions()
+    )
     mediaRecorderRef.current = recorder
 
     recorder.ondataavailable = (event) => {
@@ -220,8 +322,15 @@ export function useCoachSession(exercise) {
       sendRecording(blob)
     }
 
-    recorder.start()
+    recorder.start(1000)
     setStatus('recording')
+
+    window.clearTimeout(recordingTimerRef.current)
+    recordingTimerRef.current = window.setTimeout(() => {
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+    }, MAX_RECORDING_MS)
   }, [sendRecording, showCue])
 
   const stopRecording = useCallback(() => {
@@ -237,8 +346,9 @@ export function useCoachSession(exercise) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: 640, max: 640 },
+            height: { ideal: 480, max: 480 },
+            frameRate: { ideal: 24, max: 30 },
             facingMode: 'user'
           },
           audio: {
@@ -270,6 +380,8 @@ export function useCoachSession(exercise) {
 
           if (message.type === 'session_ready') {
             setStatus('ready')
+            setReviewFaults(null)
+            setConversationMessages([])
           }
 
           if (message.type === 'review_started') {
@@ -277,18 +389,29 @@ export function useCoachSession(exercise) {
             showCue('Coach is reviewing your set...', 3000)
           }
 
-          if (message.type === 'coach_audio') {
-            await playAudio(message.data, message.mimeType)
+          if (message.type === 'review_ready') {
+            resetCoachPlayback()
+            setReviewFaults(message.faults || [])
+            setStatus('reviewing')
             await startFollowUpMic(stream)
           }
 
+          if (message.type === 'coach_audio') {
+            await queueCoachAudio(message.data, message.mimeType)
+          }
+
           if (message.type === 'coach_text') {
+            addMessage('coach', message.text)
             showCue(message.text)
 
             if (statusRef.current === 'analyzing') {
               setStatus('conversing')
               await startFollowUpMic(stream)
             }
+          }
+
+          if (message.type === 'user_text') {
+            addMessage('user', message.text)
           }
 
           if (message.type === 'error') {
@@ -322,25 +445,40 @@ export function useCoachSession(exercise) {
     return () => {
       mounted = false
       window.clearTimeout(cueTimerRef.current)
+      window.clearTimeout(recordingTimerRef.current)
       if (mediaRecorderRef.current?.state === 'recording') {
         mediaRecorderRef.current.stop()
       }
+      revokeRecordingUrl()
       wsRef.current?.close()
       processorRef.current?.disconnect()
       mediaSourceRef.current?.disconnect()
       silentGainRef.current?.disconnect()
       streamRef.current?.getTracks().forEach((track) => track.stop())
-      audioContextRef.current?.close()
+      captureContextRef.current?.close()
+      playbackContextRef.current?.close()
     }
-  }, [exercise, playAudio, showCue, startFollowUpMic])
+  }, [
+    exercise,
+    queueCoachAudio,
+    resetCoachPlayback,
+    revokeRecordingUrl,
+    showCue,
+    startFollowUpMic,
+    addMessage
+  ])
 
   return {
     status,
     currentCue,
     cueVisible,
     errorMessage,
+    reviewFaults,
+    reviewVideoUrl,
+    conversationMessages,
     videoRef,
     startRecording,
-    stopRecording
+    stopRecording,
+    sendNextRep
   }
 }

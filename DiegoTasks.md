@@ -36,7 +36,7 @@ Your job is making sure Coach sounds like a real coach, not a chatbot.
 ### Step 1 — Open AI Studio
 1. Go to https://aistudio.google.com (hackathon account, Hackathon Chrome profile)
 2. Go to **Stream Realtime** in the left sidebar
-3. Select model: `gemini-2.0-flash-live-001`
+3. Select model: `gemini-3.1-flash-live-preview` (must match `GEMINI_LIVE_MODEL` on the server)
 
 ### Step 2 — Paste the System Prompt
 Open System Instructions and paste the canonical prompt below.
