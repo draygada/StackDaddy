@@ -18,15 +18,17 @@ npm run dev
 
 ## What Good Looks Like
 
-Record one set, then tap Stop. The server should print the uploaded recording
-and then a set review:
+Record one set (max 15 seconds), then tap Stop. The server should print timing
+and the flash review text before voice:
 
 ```text
-Recording received (video/webm, approx 2.40 MB)
-Set review: On that set your knees caved near the bottom. Push your knees out over your toes. Want to fix stance or depth next?
+Recording received (video/webm, approx 0.80 MB)
+Flash review done in 4200ms
+Set review: On that set your knees caved on reps 3 and 4. Push your knees out over your toes.
+Total review pipeline started in 4300ms (text sent)
 ```
 
-The same review should appear over the camera feed.
+The same review should appear on the overlay within a few seconds; voice follows.
 
 ## Demo Rounds
 

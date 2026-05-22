@@ -14,6 +14,25 @@
   transform: scaleX(-1);
 }
 
+.rep-playback-video {
+  position: absolute;
+  z-index: 4;
+  right: 16px;
+  bottom: 120px;
+  width: 160px;
+  height: 120px;
+  display: none;
+  border: 2px solid oklch(0.81 0.15 83);
+  border-radius: 10px;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: oklch(0.04 0.01 230);
+}
+
+.rep-playback-video[data-playing='true'] {
+  display: block;
+}
+
 .session::after {
   position: absolute;
   inset: 0;

@@ -1,0 +1,232 @@
+.review-page {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background: oklch(0.06 0.01 230);
+  overflow: hidden;
+}
+
+/* ── Left panel ── */
+
+.review-left {
+  display: flex;
+  flex: 0 0 50%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px 24px;
+  border-right: 1px solid oklch(0.86 0.015 230 / 0.12);
+}
+
+.review-video {
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  object-fit: cover;
+  background: oklch(0.04 0.01 230);
+  transform: scaleX(-1);
+}
+
+.review-no-faults {
+  color: oklch(0.84 0.018 230);
+  font-size: 18px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.review-fault-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-rep-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: oklch(0.62 0.2 28);
+  color: oklch(0.98 0.006 230);
+  font-size: 13px;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.review-fault-type {
+  color: oklch(0.92 0.01 230);
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.review-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.review-nav-btn {
+  min-width: 72px;
+  min-height: 40px;
+  border: 1px solid oklch(0.86 0.015 230 / 0.34);
+  border-radius: 8px;
+  background: oklch(0.2 0.015 230 / 0.74);
+  color: oklch(0.97 0.006 230);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 750;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.review-nav-btn:hover:not(:disabled),
+.review-nav-btn:focus-visible:not(:disabled) {
+  border-color: oklch(0.97 0.006 230 / 0.58);
+  background: oklch(0.26 0.018 230 / 0.82);
+  outline: none;
+}
+
+.review-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.review-nav-count {
+  color: oklch(0.72 0.012 230);
+  font-size: 13px;
+  font-weight: 650;
+  min-width: 40px;
+  text-align: center;
+}
+
+.review-done-btn {
+  min-width: 120px;
+  min-height: 44px;
+  border: 1px solid oklch(0.86 0.015 230 / 0.28);
+  border-radius: 999px;
+  background: transparent;
+  color: oklch(0.72 0.012 230);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  transition:
+    color 180ms ease,
+    border-color 180ms ease;
+}
+
+.review-done-btn:hover,
+.review-done-btn:focus-visible {
+  color: oklch(0.92 0.01 230);
+  border-color: oklch(0.86 0.015 230 / 0.54);
+  outline: none;
+}
+
+/* ── Right panel ── */
+
+.review-right {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.review-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.3 0.01 230) transparent;
+}
+
+.review-messages-empty {
+  margin: 0;
+  color: oklch(0.5 0.01 230);
+  font-size: 14px;
+  font-style: italic;
+  text-align: center;
+  padding-top: 40px;
+}
+
+.review-bubble {
+  max-width: 80%;
+  padding: 10px 16px;
+  border-radius: 16px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.review-bubble--coach {
+  align-self: flex-start;
+  background: oklch(0.18 0.015 230);
+  color: oklch(0.94 0.008 230);
+  border-bottom-left-radius: 4px;
+}
+
+.review-bubble--user {
+  align-self: flex-end;
+  background: oklch(0.28 0.06 230);
+  color: oklch(0.96 0.006 230);
+  border-bottom-right-radius: 4px;
+}
+
+.review-mic-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid oklch(0.86 0.015 230 / 0.1);
+}
+
+.review-mic-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: oklch(0.72 0.14 174);
+  box-shadow: 0 0 14px oklch(0.72 0.14 174 / 0.7);
+  animation: mic-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.review-mic-label {
+  color: oklch(0.62 0.012 230);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* ── Mobile: stack vertically ── */
+
+@media (max-width: 640px) {
+  .review-page {
+    flex-direction: column;
+  }
+
+  .review-left {
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid oklch(0.86 0.015 230 / 0.12);
+    padding: 20px 16px;
+    gap: 14px;
+  }
+
+  .review-video {
+    max-width: 100%;
+  }
+
+  .review-right {
+    flex: 1;
+    min-height: 0;
+  }
+}
