@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { GoogleGenAI, Modality } from '@google/genai'
+import { GoogleGenAI, Modality, Type } from '@google/genai'
 import { WebSocketServer } from 'ws'
 import { buildSquatPrompt } from './prompts/squat.js'
 
@@ -83,11 +83,67 @@ function cleanText(text) {
     .trim()
 }
 
+function parseReviewResponse(text) {
+  const cleaned = cleanText(text)
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    return cleanText(parsed.review || '')
+  } catch {
+    return cleaned
+  }
+}
+
+async function generateTextFallbackReview({ data, mimeType, exercise }) {
+  const response = await genai.models.generateContent({
+    model: reviewModel,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              data,
+              mimeType
+            }
+          },
+          {
+            text: `Review this completed ${exercise} set. Return a specific 2-3 sentence review in English. Mention at most two faults, or give praise if the set looks good.`
+          }
+        ]
+      }
+    ],
+    config: {
+      systemInstruction: buildSquatPrompt(),
+      temperature: 0.2,
+      maxOutputTokens: 160,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          review: {
+            type: Type.STRING
+          }
+        },
+        required: ['review']
+      }
+    }
+  })
+
+  const review = parseReviewResponse(response.text || '')
+
+  if (review.length >= 20) return review
+
+  return 'Nice set. Keep your chest tall and push your knees out over your toes.'
+}
+
 function forwardLiveMessage(browserSocket, message, transcript) {
   const parts = message.serverContent?.modelTurn?.parts || []
 
   for (const part of parts) {
     if (part.inlineData?.data) {
+      transcript.hasResponse = true
+      console.log(`Forwarding Coach audio (${part.inlineData.mimeType || 'audio/pcm'})`)
       sendJson(browserSocket, {
         type: 'coach_audio',
         data: part.inlineData.data,
@@ -96,16 +152,19 @@ function forwardLiveMessage(browserSocket, message, transcript) {
     }
 
     if (part.text) {
+      transcript.hasResponse = true
       transcript.text += part.text
     }
   }
 
   const outputText = message.serverContent?.outputTranscription?.text
   if (outputText) {
+    transcript.hasResponse = true
     transcript.text += outputText
   }
 
   if (message.text) {
+    transcript.hasResponse = true
     transcript.text += message.text
   }
 
@@ -117,6 +176,7 @@ function forwardLiveMessage(browserSocket, message, transcript) {
     transcript.text = ''
 
     if (text) {
+      console.log(`Forwarding Coach text: ${text}`)
       sendJson(browserSocket, {
         type: 'coach_text',
         text
@@ -126,9 +186,9 @@ function forwardLiveMessage(browserSocket, message, transcript) {
 }
 
 async function openLiveSession(browserSocket) {
-  const transcript = { text: '' }
+  const transcript = { text: '', hasResponse: false }
 
-  return genai.live.connect({
+  const session = await genai.live.connect({
     model: liveModel,
     config: {
       systemInstruction: buildSquatPrompt(),
@@ -157,17 +217,23 @@ async function openLiveSession(browserSocket) {
       }
     }
   })
+
+  return { session, transcript }
 }
 
 wss.on('connection', async (browserSocket, request) => {
   const url = new URL(request.url, `http://${request.headers.host}`)
   const exercise = url.searchParams.get('exercise') || 'squat'
   let geminiSession = null
+  let transcript = null
+  let fallbackTimer = null
 
   console.log(`Browser connected for ${exercise}`)
 
   try {
-    geminiSession = await openLiveSession(browserSocket)
+    const live = await openLiveSession(browserSocket)
+    geminiSession = live.session
+    transcript = live.transcript
     sendJson(browserSocket, { type: 'session_ready' })
   } catch (error) {
     console.error('Failed to open Gemini Live session:', error)
@@ -190,6 +256,7 @@ wss.on('connection', async (browserSocket, request) => {
           `Recording received (${mimeType}, approx ${sizeMb.toFixed(2)} MB)`
         )
         sendJson(browserSocket, { type: 'review_started' })
+        transcript.hasResponse = false
 
         geminiSession.sendClientContent({
           turns: [
@@ -210,6 +277,34 @@ wss.on('connection', async (browserSocket, request) => {
           ],
           turnComplete: true
         })
+
+        fallbackTimer = setTimeout(async () => {
+          if (transcript.hasResponse || browserSocket.readyState !== browserSocket.OPEN) {
+            return
+          }
+
+          console.warn('Gemini Live did not respond in time; using text fallback')
+
+          try {
+            const review = await generateTextFallbackReview({
+              data: message.data,
+              mimeType,
+              exercise
+            })
+
+            transcript.hasResponse = true
+            sendJson(browserSocket, {
+              type: 'coach_text',
+              text: review
+            })
+          } catch (error) {
+            console.error('Fallback review failed:', error)
+            sendJson(browserSocket, {
+              type: 'error',
+              message: 'Coach timed out while reviewing the set'
+            })
+          }
+        }, 30000)
       }
 
       if (message.type === 'audio_chunk') {
@@ -232,6 +327,7 @@ wss.on('connection', async (browserSocket, request) => {
 
   browserSocket.on('close', () => {
     console.log('Browser disconnected')
+    clearTimeout(fallbackTimer)
     geminiSession?.close()
   })
 })
