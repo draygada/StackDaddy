@@ -1,6 +1,7 @@
 # StackDaddy Server
 
-WebSocket bridge between the browser frontend and Gemini video review.
+WebSocket bridge between the browser frontend, local pose analysis, and Gemini
+Live voice coaching.
 
 ## Setup
 
@@ -17,13 +18,11 @@ PORT=8080
 HOST=127.0.0.1
 GEMINI_REVIEW_MODEL=gemini-2.5-flash
 GEMINI_LIVE_MODEL=gemini-3.1-flash-live-preview
-USE_FAST_REVIEW=true
 ```
 
-`USE_FAST_REVIEW=true` (default) analyzes video with `GEMINI_REVIEW_MODEL`
-(`gemini-2.5-flash` by default) so text appears quickly, then uses
-`GEMINI_LIVE_MODEL` (`gemini-3.1-flash-live-preview`) to speak that opening.
-Set `USE_FAST_REVIEW=false` to send the full video only through Live (slower).
+The browser now sends local MediaPipe pose metrics with the recording. The server
+trusts those measured squat faults first, uses `GEMINI_REVIEW_MODEL` only as a
+fallback if pose tracking fails, then uses `GEMINI_LIVE_MODEL` to speak and chat.
 
 Do not commit `.env`.
 
@@ -69,25 +68,26 @@ Restart the frontend after changing `VITE_WS_URL`.
 
 | Choice | Why |
 |--------|-----|
-| **WebM VP8, video-only** | Default in the client — no audio muxed into the set clip (mic is only for follow-up). Smaller and faster than WebM+Opus. |
+| **WebM VP8, video-only** | Default in the client - no audio muxed into the set clip (mic is only for follow-up). Smaller and faster than WebM+Opus. |
 | **`video/webm` MIME to Gemini** | Server strips `;codecs=vp8` so the API gets a clean MIME type. |
-| **Not MP4 from MediaRecorder** | Chrome/Safari rarely support `MediaRecorder` → MP4; WebM is the practical browser format. |
+| **Not MP4 from MediaRecorder** | Chrome/Safari rarely support `MediaRecorder` -> MP4; WebM is the practical browser format. |
 | **Not JPEG strips (yet)** | Key frames would be smaller but worse for rep timing; full short WebM is simpler. |
-
-Optional: set `USE_FAST_REVIEW=true` so Gemini Flash reads the clip before Live speaks.
 
 ## Message Flow
 
 The browser sends:
 
-- `recording_complete`: base64 WebM (video-only when supported) after Stop.
+- `recording_complete`: base64 WebM plus local squat `poseAnalysis` after Stop.
 - `audio_chunk`: 16 kHz PCM follow-up mic audio after Coach opens.
+- `next_rep`: selected rep/fault in the review UI.
+- `call_control`: starts or stops follow-up audio capture.
 
 The server sends:
 
 - `session_ready`: server is ready to receive a recording.
 - `review_started`: server received the recording.
-- `coach_text`: opening feedback on the overlay.
-- `coach_rep_issues`: array of bad reps with explanation + `startSec`/`endSec` for replay.
+- `review_ready`: array of detected faults with timestamps for replay.
 - `coach_audio`: Gemini Live speech audio for browser playback.
+- `coach_text`: opening feedback/transcript on the overlay/review chat.
+- `user_text`: transcript of follow-up mic audio.
 - `error`: connection or Gemini errors.

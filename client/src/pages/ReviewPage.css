@@ -6,7 +6,7 @@
   overflow: hidden;
 }
 
-/* ── Left panel ── */
+/* Left panel */
 
 .review-left {
   display: flex;
@@ -19,14 +19,30 @@
   border-right: 1px solid oklch(0.86 0.015 230 / 0.12);
 }
 
-.review-video {
+.review-video-wrap {
+  position: relative;
   width: 100%;
   max-width: 400px;
   aspect-ratio: 4 / 3;
+  overflow: hidden;
   border-radius: 12px;
-  object-fit: cover;
   background: oklch(0.04 0.01 230);
+}
+
+.review-video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
   transform: scaleX(-1);
+}
+
+.review-pose-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 .review-no-faults {
@@ -34,6 +50,13 @@
   font-size: 18px;
   font-weight: 650;
   text-align: center;
+}
+
+.review-fault-card {
+  width: min(100%, 400px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .review-fault-info {
@@ -58,6 +81,21 @@
   font-size: 15px;
   font-weight: 700;
   text-transform: capitalize;
+}
+
+.review-fault-copy,
+.review-fault-cue {
+  margin: 0;
+  color: oklch(0.76 0.014 230);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.42;
+  text-align: center;
+}
+
+.review-fault-cue {
+  color: oklch(0.86 0.14 83);
+  font-weight: 760;
 }
 
 .review-nav {
@@ -123,7 +161,7 @@
   outline: none;
 }
 
-/* ── Right panel ── */
+/* Right panel */
 
 .review-right {
   display: flex;
@@ -176,12 +214,21 @@
   border-bottom-right-radius: 4px;
 }
 
-.review-mic-bar {
+.review-call-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 16px 24px;
   border-top: 1px solid oklch(0.86 0.015 230 / 0.1);
+}
+
+.review-call-state {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  flex: 1;
 }
 
 .review-mic-dot {
@@ -189,6 +236,10 @@
   height: 9px;
   flex: 0 0 auto;
   border-radius: 999px;
+  background: oklch(0.5 0.012 230);
+}
+
+.review-call-bar.is-active .review-mic-dot {
   background: oklch(0.72 0.14 174);
   box-shadow: 0 0 14px oklch(0.72 0.14 174 / 0.7);
   animation: mic-pulse 1.8s ease-in-out infinite;
@@ -200,13 +251,63 @@
 }
 
 .review-mic-label {
+  flex: 0 0 auto;
   color: oklch(0.62 0.012 230);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
 }
 
-/* ── Mobile: stack vertically ── */
+.review-live-transcript {
+  min-width: 0;
+  overflow: hidden;
+  color: oklch(0.86 0.018 230);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-call-btn {
+  min-width: 108px;
+  min-height: 38px;
+  border: 1px solid oklch(0.86 0.015 230 / 0.28);
+  border-radius: 8px;
+  background: oklch(0.16 0.014 230);
+  color: oklch(0.94 0.008 230);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 760;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+.review-call-bar.is-active .review-call-btn {
+  border-color: oklch(0.72 0.14 174 / 0.42);
+  color: oklch(0.82 0.11 174);
+}
+
+.review-call-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.review-call-btn:hover,
+.review-call-btn:focus-visible {
+  border-color: oklch(0.97 0.006 230 / 0.54);
+  background: oklch(0.22 0.016 230);
+  outline: none;
+}
+
+.review-call-btn:disabled:hover {
+  border-color: oklch(0.86 0.015 230 / 0.28);
+  background: oklch(0.16 0.014 230);
+}
+
+/* Mobile: stack vertically */
 
 @media (max-width: 640px) {
   .review-page {
@@ -221,12 +322,16 @@
     gap: 14px;
   }
 
-  .review-video {
+  .review-video-wrap {
     max-width: 100%;
   }
 
   .review-right {
     flex: 1;
     min-height: 0;
+  }
+
+  .review-call-bar {
+    padding: 14px 16px;
   }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPoseAnalyzer } from '../utils/squatPoseAnalyzer'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8080'
 const MAX_RECORDING_MS = 15_000
@@ -13,6 +14,16 @@ function bytesToBase64(bytes) {
   }
 
   return btoa(binary)
+}
+
+function cleanTranscript(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getSpeechRecognition() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null
 }
 
 function base64ToArrayBuffer(base64) {
@@ -90,21 +101,32 @@ export function useCoachSession(exercise) {
   const [cueVisible, setCueVisible] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [reviewFaults, setReviewFaults] = useState(null)
+  const [reviewPoseAnalysis, setReviewPoseAnalysis] = useState(null)
   const [reviewVideoUrl, setReviewVideoUrl] = useState(null)
   const [conversationMessages, setConversationMessages] = useState([])
+  const [callActive, setCallActive] = useState(false)
+  const [callStatus, setCallStatus] = useState('paused')
+  const [liveUserTranscript, setLiveUserTranscript] = useState('')
 
   const captureContextRef = useRef(null)
+  const callActiveRef = useRef(false)
   const playbackContextRef = useRef(null)
   const playbackCursorRef = useRef(0)
   const chunksRef = useRef([])
+  const poseAnalyzerRef = useRef(null)
+  const poseSamplingRef = useRef(null)
+  const playbackDoneTimerRef = useRef(null)
   const recordingUrlRef = useRef(null)
   const cueTimerRef = useRef(null)
   const followUpStartedRef = useRef(false)
   const mediaRecorderRef = useRef(null)
   const recordingTimerRef = useRef(null)
+  const finalTranscriptRef = useRef('')
+  const interimTranscriptRef = useRef('')
   const mediaSourceRef = useRef(null)
   const processorRef = useRef(null)
   const silentGainRef = useRef(null)
+  const speechRecognitionRef = useRef(null)
   const statusRef = useRef(status)
   const streamRef = useRef(null)
   const videoRef = useRef(null)
@@ -113,6 +135,10 @@ export function useCoachSession(exercise) {
   useEffect(() => {
     statusRef.current = status
   }, [status])
+
+  useEffect(() => {
+    callActiveRef.current = callActive
+  }, [callActive])
 
   const showCue = useCallback((text, duration = 8000) => {
     window.clearTimeout(cueTimerRef.current)
@@ -124,12 +150,109 @@ export function useCoachSession(exercise) {
   }, [])
 
   const addMessage = useCallback((role, text) => {
-    if (!text) return
-    setConversationMessages((prev) => [
-      ...prev,
-      { id: nextMsgId(), role, text }
-    ])
+    const cleaned = cleanTranscript(text)
+    if (!cleaned) return
+
+    setConversationMessages((prev) => {
+      const last = prev[prev.length - 1]
+      if (last?.role === role && last.text === cleaned) return prev
+
+      return [
+        ...prev,
+        { id: nextMsgId(), role, text: cleaned }
+      ]
+    })
   }, [])
+
+  const stopLocalTranscription = useCallback(() => {
+    const recognition = speechRecognitionRef.current
+    speechRecognitionRef.current = null
+
+    if (recognition) {
+      recognition.onend = null
+      recognition.onerror = null
+      recognition.onresult = null
+      try {
+        recognition.stop()
+      } catch {
+        // Speech recognition may already be stopped by the browser.
+      }
+    }
+
+    const transcript = cleanTranscript(
+      `${finalTranscriptRef.current} ${interimTranscriptRef.current}`
+    )
+    finalTranscriptRef.current = transcript
+    interimTranscriptRef.current = ''
+    setLiveUserTranscript(transcript)
+
+    return transcript
+  }, [])
+
+  const startLocalTranscription = useCallback(() => {
+    stopLocalTranscription()
+    finalTranscriptRef.current = ''
+    interimTranscriptRef.current = ''
+    setLiveUserTranscript('')
+
+    const SpeechRecognition = getSpeechRecognition()
+    if (!SpeechRecognition) return
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+
+    recognition.onresult = (event) => {
+      let finalChunk = ''
+      let interimChunk = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i]
+        const text = cleanTranscript(result[0]?.transcript)
+
+        if (!text) continue
+
+        if (result.isFinal) {
+          finalChunk = cleanTranscript(`${finalChunk} ${text}`)
+        } else {
+          interimChunk = cleanTranscript(`${interimChunk} ${text}`)
+        }
+      }
+
+      if (finalChunk) {
+        finalTranscriptRef.current = cleanTranscript(
+          `${finalTranscriptRef.current} ${finalChunk}`
+        )
+      }
+
+      interimTranscriptRef.current = interimChunk
+      setLiveUserTranscript(
+        cleanTranscript(`${finalTranscriptRef.current} ${interimChunk}`)
+      )
+    }
+
+    recognition.onerror = (event) => {
+      console.warn('Speech recognition error:', event.error)
+    }
+
+    recognition.onend = () => {
+      if (callActiveRef.current && speechRecognitionRef.current === recognition) {
+        try {
+          recognition.start()
+        } catch {
+          // Ignore restart races.
+        }
+      }
+    }
+
+    try {
+      recognition.start()
+      speechRecognitionRef.current = recognition
+    } catch (error) {
+      console.warn('Speech recognition unavailable:', error)
+    }
+  }, [stopLocalTranscription])
 
   const resetCoachPlayback = useCallback(() => {
     const ctx = playbackContextRef.current
@@ -180,6 +303,12 @@ export function useCoachSession(exercise) {
         source.connect(ctx.destination)
         source.start(playbackCursorRef.current)
         playbackCursorRef.current += audioBuffer.duration
+
+        setCallStatus('speaking')
+        window.clearTimeout(playbackDoneTimerRef.current)
+        playbackDoneTimerRef.current = window.setTimeout(() => {
+          setCallStatus(callActiveRef.current ? 'listening' : 'paused')
+        }, Math.max(250, (playbackCursorRef.current - ctx.currentTime) * 1000 + 180))
       } catch (error) {
         console.error('Audio playback error:', error, mimeType)
       }
@@ -209,6 +338,7 @@ export function useCoachSession(exercise) {
     processor.onaudioprocess = (event) => {
       const ws = wsRef.current
       if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (!callActiveRef.current) return
 
       const s = statusRef.current
       if (s !== 'conversing' && s !== 'reviewing') return
@@ -238,6 +368,42 @@ export function useCoachSession(exercise) {
     silentGainRef.current = silentGain
   }, [])
 
+  const sendCallControl = useCallback((action, transcript = '') => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+
+    ws.send(
+      JSON.stringify({
+        type: 'call_control',
+        action,
+        transcript
+      })
+    )
+  }, [])
+
+  const startCall = useCallback(async () => {
+    if (statusRef.current !== 'reviewing' && statusRef.current !== 'conversing') {
+      return
+    }
+
+    callActiveRef.current = true
+    await startFollowUpMic(streamRef.current)
+    startLocalTranscription()
+    setCallActive(true)
+    setCallStatus('listening')
+    sendCallControl('start')
+  }, [sendCallControl, startFollowUpMic, startLocalTranscription])
+
+  const stopCall = useCallback(() => {
+    callActiveRef.current = false
+    const transcript = stopLocalTranscription()
+    if (transcript) addMessage('user', transcript)
+
+    setCallActive(false)
+    setCallStatus('thinking')
+    sendCallControl('stop', transcript)
+  }, [addMessage, sendCallControl, stopLocalTranscription])
+
   const revokeRecordingUrl = useCallback(() => {
     if (recordingUrlRef.current) {
       URL.revokeObjectURL(recordingUrlRef.current)
@@ -257,8 +423,25 @@ export function useCoachSession(exercise) {
     )
   }, [])
 
+  const stopPoseSampling = useCallback(() => {
+    window.clearInterval(poseSamplingRef.current)
+    poseSamplingRef.current = null
+  }, [])
+
+  const startPoseSampling = useCallback(() => {
+    stopPoseSampling()
+
+    const analyzer = poseAnalyzerRef.current
+    if (!analyzer || !videoRef.current) return
+
+    analyzer.reset()
+    poseSamplingRef.current = window.setInterval(() => {
+      analyzer.sample(videoRef.current)
+    }, 80)
+  }, [stopPoseSampling])
+
   const sendRecording = useCallback(
-    (blob) => {
+    (blob, poseAnalysis) => {
       revokeRecordingUrl()
       const url = URL.createObjectURL(blob)
       recordingUrlRef.current = url
@@ -284,7 +467,8 @@ export function useCoachSession(exercise) {
           JSON.stringify({
             type: 'recording_complete',
             data: result.split(',')[1],
-            mimeType: normalizeVideoMimeType(blob.type)
+            mimeType: normalizeVideoMimeType(blob.type),
+            poseAnalysis
           })
         )
       }
@@ -316,13 +500,16 @@ export function useCoachSession(exercise) {
       const blob = new Blob(chunksRef.current, {
         type: recorder.mimeType || 'video/webm'
       })
+      stopPoseSampling()
+      const poseAnalysis = poseAnalyzerRef.current?.finish()
 
       setStatus('analyzing')
       showCue('Coach is reviewing your set...', 3000)
-      sendRecording(blob)
+      sendRecording(blob, poseAnalysis)
     }
 
     recorder.start(1000)
+    startPoseSampling()
     setStatus('recording')
 
     window.clearTimeout(recordingTimerRef.current)
@@ -331,7 +518,7 @@ export function useCoachSession(exercise) {
         mediaRecorderRef.current.stop()
       }
     }, MAX_RECORDING_MS)
-  }, [sendRecording, showCue])
+  }, [sendRecording, showCue, startPoseSampling, stopPoseSampling])
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'recording') {
@@ -369,6 +556,19 @@ export function useCoachSession(exercise) {
           videoRef.current.srcObject = stream
         }
 
+        createPoseAnalyzer(exercise || 'squat')
+          .then((analyzer) => {
+            if (!mounted) {
+              analyzer.close()
+              return
+            }
+            poseAnalyzerRef.current = analyzer
+            console.log(`Local ${exercise || 'squat'} pose analyzer ready`)
+          })
+          .catch((error) => {
+            console.warn('Local squat pose analyzer unavailable:', error)
+          })
+
         const url = new URL(WS_URL)
         url.searchParams.set('exercise', exercise || 'squat')
 
@@ -381,7 +581,9 @@ export function useCoachSession(exercise) {
           if (message.type === 'session_ready') {
             setStatus('ready')
             setReviewFaults(null)
+            setReviewPoseAnalysis(null)
             setConversationMessages([])
+            setLiveUserTranscript('')
           }
 
           if (message.type === 'review_started') {
@@ -392,8 +594,8 @@ export function useCoachSession(exercise) {
           if (message.type === 'review_ready') {
             resetCoachPlayback()
             setReviewFaults(message.faults || [])
+            setReviewPoseAnalysis(message.poseAnalysis || null)
             setStatus('reviewing')
-            await startFollowUpMic(stream)
           }
 
           if (message.type === 'coach_audio') {
@@ -406,7 +608,13 @@ export function useCoachSession(exercise) {
 
             if (statusRef.current === 'analyzing') {
               setStatus('conversing')
-              await startFollowUpMic(stream)
+            }
+
+            if (!callActiveRef.current) {
+              window.clearTimeout(playbackDoneTimerRef.current)
+              playbackDoneTimerRef.current = window.setTimeout(() => {
+                setCallStatus('paused')
+              }, 1200)
             }
           }
 
@@ -445,11 +653,17 @@ export function useCoachSession(exercise) {
     return () => {
       mounted = false
       window.clearTimeout(cueTimerRef.current)
+      window.clearTimeout(playbackDoneTimerRef.current)
       window.clearTimeout(recordingTimerRef.current)
+      stopPoseSampling()
       if (mediaRecorderRef.current?.state === 'recording') {
         mediaRecorderRef.current.stop()
       }
       revokeRecordingUrl()
+      setCallActive(false)
+      setCallStatus('paused')
+      stopLocalTranscription()
+      poseAnalyzerRef.current?.close()
       wsRef.current?.close()
       processorRef.current?.disconnect()
       mediaSourceRef.current?.disconnect()
@@ -464,8 +678,10 @@ export function useCoachSession(exercise) {
     resetCoachPlayback,
     revokeRecordingUrl,
     showCue,
+    stopPoseSampling,
     startFollowUpMic,
-    addMessage
+    addMessage,
+    stopLocalTranscription
   ])
 
   return {
@@ -474,11 +690,17 @@ export function useCoachSession(exercise) {
     cueVisible,
     errorMessage,
     reviewFaults,
+    reviewPoseAnalysis,
     reviewVideoUrl,
     conversationMessages,
     videoRef,
     startRecording,
     stopRecording,
-    sendNextRep
+    sendNextRep,
+    callActive,
+    callStatus,
+    liveUserTranscript,
+    startCall,
+    stopCall
   }
 }

@@ -24,21 +24,34 @@ export default function Session({ exercise, onEnd }) {
     cueVisible,
     errorMessage,
     reviewFaults,
+    reviewPoseAnalysis,
     reviewVideoUrl,
     conversationMessages,
+    callActive,
+    callStatus,
+    liveUserTranscript,
     videoRef,
     startRecording,
     stopRecording,
-    sendNextRep
+    sendNextRep,
+    startCall,
+    stopCall
   } = useCoachSession(exercise)
 
   if (status === 'reviewing') {
     return (
       <ReviewPage
         faults={reviewFaults || []}
+        poseAnalysis={reviewPoseAnalysis}
         videoUrl={reviewVideoUrl}
         conversationMessages={conversationMessages}
+        callActive={callActive}
+        callStatus={callStatus}
+        liveUserTranscript={liveUserTranscript}
+        exercise={exercise}
         sendNextRep={sendNextRep}
+        startCall={startCall}
+        stopCall={stopCall}
         onEnd={onEnd}
       />
     )
